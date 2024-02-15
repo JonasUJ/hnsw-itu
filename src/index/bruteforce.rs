@@ -46,6 +46,6 @@ impl Index for Bruteforce {
             }
         }
 
-        heap.into_iter().collect()
+        heap.into()
     }
 }

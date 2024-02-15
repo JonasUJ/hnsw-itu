@@ -1,8 +1,9 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::{path::PathBuf, str::FromStr, time::SystemTime};
 
 use clap::{arg, Parser};
-use hdf5::Result;
+use hdf5::{types::VarLenUnicode, File, Result};
 use hnsw_itu::{Bruteforce, Index};
+use ndarray::{s, Array1};
 
 #[allow(dead_code)]
 mod dataset;
@@ -16,6 +17,9 @@ struct Cli {
 
     #[arg(value_name = "QUERIES", help = "HDF5 file with queries into <DATASET>")]
     queries: PathBuf,
+
+    #[arg(short, default_value_t = 100, help = "Number of nearest neighbors to find")]
+    k: usize,
 }
 
 fn main() -> Result<()> {
@@ -33,14 +37,54 @@ fn main() -> Result<()> {
     println!("indexing time: {:?}", indexing_time.elapsed());
 
     let searching_time = SystemTime::now();
+    let mut results = vec![];
     for (i, query) in queries.into_iter().enumerate() {
-        if i % 100 == 0 {
+        if i % 1000 == 0 {
             dbg!(i);
         }
 
-        index.search(&query, 100);
+        results.push(index.search(&query, cli.k));
     }
     println!("search time: {:?}", searching_time.elapsed());
+
+    let file = File::create("result.h5")?;
+    let knns = file.new_dataset::<u64>().shape((10_000, cli.k)).create("knns")?;
+    let dist = file.new_dataset::<u64>().shape((10_000, cli.k)).create("dist")?;
+
+    for (i, res) in results.into_iter().enumerate() {
+        let v: Vec<u64> = (&res).into_iter().map(|d| d.key() as u64 + 1).collect();
+        let arr: Array1<u64> = v.into();
+        knns.write_slice(arr.view(), s![i, ..])?;
+
+        let v: Vec<u64> = res.into_iter().map(|d| d.distance() as u64).collect();
+        let arr: Array1<u64> = v.into();
+        dist.write_slice(arr.view(), s![i, ..])?;
+    }
+
+    let _ = file
+        .new_attr::<VarLenUnicode>()
+        .create("data")?
+        .write_scalar(&VarLenUnicode::from_str("hamming").unwrap());
+    let _ = file
+        .new_attr::<VarLenUnicode>()
+        .create("size")?
+        .write_scalar(&VarLenUnicode::from_str("100K").unwrap());
+    let _ = file
+        .new_attr::<VarLenUnicode>()
+        .create("algo")?
+        .write_scalar(&VarLenUnicode::from_str("bruteforce").unwrap());
+    let _ = file
+        .new_attr::<usize>()
+        .create("buildtime")?
+        .write_scalar(&0);
+    let _ = file
+        .new_attr::<usize>()
+        .create("querytime")?
+        .write_scalar(&0);
+    let _ = file
+        .new_attr::<VarLenUnicode>()
+        .create("params")?
+        .write_scalar(&VarLenUnicode::from_str("params").unwrap());
 
     Ok(())
 }

@@ -15,3 +15,12 @@ Cargo.lock
 
 # Tags
 *.vi
+
+# Flamegraph
+flamegraph.svg
+perf.data
+
+# Eval
+*.csv
+data/
+*.h5

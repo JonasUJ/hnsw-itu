@@ -5,6 +5,7 @@ use ndarray::{array, s, Array1, Array2};
 
 use hdf5::{Dataset, File, Result};
 
+#[derive(Clone)]
 pub struct SketchDataset {
     file: File,
     dataset: Dataset,

@@ -136,6 +136,12 @@ impl<const N: usize, T: Ord> FromIterator<T> for NHeap<N, T> {
     }
 }
 
+impl<const N: usize, T: Ord> Into<Vec<T>> for NHeap<N, T> {
+    fn into(self) -> Vec<T> {
+        self.data
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
