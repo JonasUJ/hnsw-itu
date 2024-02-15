@@ -61,12 +61,14 @@ fn main() -> Result<()> {
         .shape((10_000, cli.k))
         .create("dist")?;
 
-    for (i, res) in results.into_iter().enumerate() {
-        let v: Vec<u64> = (&res).into_iter().map(|d| d.key() as u64 + 1).collect();
+    for (i, mut res) in results.into_iter().enumerate() {
+        res.sort();
+
+        let v: Vec<u64> = res.iter().map(|d| d.key() as u64 + 1).collect();
         let arr: Array1<u64> = v.into();
         knns.write_slice(arr.view(), s![i, ..])?;
 
-        let v: Vec<u64> = res.into_iter().map(|d| d.distance() as u64).collect();
+        let v: Vec<u64> = res.iter().map(|d| d.distance() as u64).collect();
         let arr: Array1<u64> = v.into();
         dist.write_slice(arr.view(), s![i, ..])?;
     }
