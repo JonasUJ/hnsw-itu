@@ -72,8 +72,8 @@ mod tests {
 
     #[test]
     fn hamming_distance() {
-        let a = Sketch::new([0b1111,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0b1001]);
-        let b = Sketch::new([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0b1011]);
+        let a = Sketch::new([0b1111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b1001]);
+        let b = Sketch::new([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b1011]);
 
         assert_eq!(a.distance(&b), 5);
     }

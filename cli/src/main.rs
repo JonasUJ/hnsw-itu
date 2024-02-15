@@ -18,7 +18,11 @@ struct Cli {
     #[arg(value_name = "QUERIES", help = "HDF5 file with queries into <DATASET>")]
     queries: PathBuf,
 
-    #[arg(short, default_value_t = 100, help = "Number of nearest neighbors to find")]
+    #[arg(
+        short,
+        default_value_t = 100,
+        help = "Number of nearest neighbors to find"
+    )]
     k: usize,
 }
 
@@ -48,8 +52,14 @@ fn main() -> Result<()> {
     println!("search time: {:?}", searching_time.elapsed());
 
     let file = File::create("result.h5")?;
-    let knns = file.new_dataset::<u64>().shape((10_000, cli.k)).create("knns")?;
-    let dist = file.new_dataset::<u64>().shape((10_000, cli.k)).create("dist")?;
+    let knns = file
+        .new_dataset::<u64>()
+        .shape((10_000, cli.k))
+        .create("knns")?;
+    let dist = file
+        .new_dataset::<u64>()
+        .shape((10_000, cli.k))
+        .create("dist")?;
 
     for (i, res) in results.into_iter().enumerate() {
         let v: Vec<u64> = (&res).into_iter().map(|d| d.key() as u64 + 1).collect();
