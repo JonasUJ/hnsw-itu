@@ -1,0 +1,15 @@
+[package]
+name = "hnsw-itu-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI wrapper for hnsw-itu"
+
+[[bin]]
+name = "hnsw-itu"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.0", features = ["derive"] }
+hdf5 = "0.8.1"
+hnsw-itu = { version = "0.1.0", path = ".." }
+ndarray = "0.15.6"
