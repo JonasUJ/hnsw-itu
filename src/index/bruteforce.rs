@@ -1,4 +1,6 @@
-use crate::{collections::NHeap, Distance, Sketch};
+use std::{collections::BinaryHeap, fmt::Debug};
+
+use crate::{Distance, Sketch};
 
 use super::Index;
 
@@ -24,28 +26,52 @@ impl Index for Bruteforce {
     }
 
     fn search<'a>(&'a self, query: &Sketch, ef: usize) -> Vec<Distance<'a>> {
-        if ef == 0 {
+        self.sketches
+            .iter()
+            .enumerate()
+            .map(|(key, sketch)| Distance::new(query.distance(sketch), key, sketch))
+            .min_k(ef)
+    }
+}
+
+trait MinK: Iterator {
+    fn min_k(mut self, k: usize) -> Vec<Self::Item>
+    where
+        Self: Sized,
+        Self::Item: Ord + Debug,
+    {
+        if k == 0 {
             return vec![];
         }
 
-        let mut iter = self.sketches.iter().enumerate();
-        let mut heap = iter
-            .by_ref()
-            .take(ef)
-            .map(|(k, s)| Distance::new(query.distance(s), k, s))
-            .collect::<NHeap<2, _>>();
+        let iter = self.by_ref();
+        let mut heap: BinaryHeap<Self::Item> = iter.take(k).collect();
 
-        for (key, sketch) in iter {
-            let distance = query.distance(sketch);
-            let Some(farthest) = heap.peek() else {
-                panic!("ef is greater than 0 but heap was emptied")
-            };
+        for i in iter {
+            let mut top = heap
+                .peek_mut()
+                .expect("k is greater than 0 but heap was emptied");
 
-            if distance < farthest.distance() {
-                heap.poppush(Distance::new(distance, key, sketch));
+            if top.gt(&i) {
+                *top = i;
             }
         }
 
-        heap.into()
+        heap.into_vec()
+    }
+}
+
+impl<T> MinK for T where T: Iterator {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_min_k() {
+        let mut v = vec![0, 9, 1, 8, 2, 7, 3, 6, 4, 5, 5, 4, 6, 3, 7, 2, 8, 1, 9, 0];
+        v = v.into_iter().min_k(5);
+        v.sort();
+        assert_eq!(v, vec![0, 0, 1, 1, 2]);
     }
 }

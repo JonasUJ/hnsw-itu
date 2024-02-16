@@ -1,4 +1,3 @@
-mod collections;
 mod index;
 mod sketch;
 
