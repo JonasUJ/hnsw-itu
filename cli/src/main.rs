@@ -2,7 +2,7 @@ use std::{path::PathBuf, str::FromStr, time::SystemTime};
 
 use clap::{arg, Parser};
 use hdf5::{types::VarLenUnicode, File, Result};
-use hnsw_itu::{Bruteforce, Index};
+use hnsw_itu::{Bruteforce, Index, Sketch};
 use ndarray::{s, Array1};
 
 #[allow(dead_code)]
@@ -41,14 +41,8 @@ fn main() -> Result<()> {
     println!("indexing time: {:?}", indexing_time.elapsed());
 
     let searching_time = SystemTime::now();
-    let mut results = vec![];
-    for (i, query) in queries.into_iter().enumerate() {
-        if i % 1000 == 0 {
-            dbg!(i);
-        }
-
-        results.push(index.search(&query, cli.k));
-    }
+    let queries_vec: Vec<Sketch> = queries.into_iter().collect();
+    let results = index.knns(queries_vec.iter().collect(), cli.k);
     println!("search time: {:?}", searching_time.elapsed());
 
     let file = File::create("result.h5")?;
