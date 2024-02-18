@@ -20,7 +20,7 @@ struct Cli {
 
     #[arg(
         short,
-        default_value_t = 100,
+        default_value_t = 10,
         help = "Number of nearest neighbors to find"
     )]
     k: usize,
@@ -55,9 +55,7 @@ fn main() -> Result<()> {
         .shape((10_000, cli.k))
         .create("dist")?;
 
-    for (i, mut res) in results.into_iter().enumerate() {
-        res.sort();
-
+    for (i, res) in results.into_iter().enumerate() {
         let v: Vec<u64> = res.iter().map(|d| d.key() as u64 + 1).collect();
         let arr: Array1<u64> = v.into();
         knns.write_slice(arr.view(), s![i, ..])?;
