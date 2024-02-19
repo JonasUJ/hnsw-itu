@@ -1,3 +1,5 @@
+use std::cmp::Ordering::Equal;
+
 use ndarray::{arr1, Array1};
 
 #[derive(Clone, Debug)]
@@ -6,11 +8,11 @@ pub struct Sketch {
 }
 
 impl Sketch {
-    pub fn new(data: [u64; 16]) -> Self {
-        Sketch { data }
+    pub const fn new(data: [u64; 16]) -> Self {
+        Self { data }
     }
 
-    pub fn distance(&self, other: &Sketch) -> usize {
+    pub fn distance(&self, other: &Self) -> usize {
         self.data
             .iter()
             .zip(other.data.iter())
@@ -20,13 +22,14 @@ impl Sketch {
 
 impl From<Array1<u64>> for Sketch {
     fn from(value: Array1<u64>) -> Self {
-        Sketch::new([
+        Self::new([
             value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
             value[8], value[9], value[10], value[11], value[12], value[13], value[14], value[15],
         ])
     }
 }
 
+// TODO: TryFrom
 impl From<Sketch> for Array1<u64> {
     fn from(value: Sketch) -> Self {
         arr1(&value.data)
@@ -41,23 +44,23 @@ pub struct Distance<'a> {
 }
 
 impl<'a> Distance<'a> {
-    pub fn new(distance: usize, key: usize, sketch: &'a Sketch) -> Self {
-        Distance {
+    pub const fn new(distance: usize, key: usize, sketch: &'a Sketch) -> Self {
+        Self {
             distance,
             key,
             sketch,
         }
     }
 
-    pub fn distance(&self) -> usize {
+    pub const fn distance(&self) -> usize {
         self.distance
     }
 
-    pub fn key(&self) -> usize {
+    pub const fn key(&self) -> usize {
         self.key
     }
 
-    pub fn sketch(&self) -> &'a Sketch {
+    pub const fn sketch(&self) -> &'a Sketch {
         self.sketch
     }
 }
@@ -78,7 +81,10 @@ impl<'a> Eq for Distance<'a> {}
 
 impl<'a> Ord for Distance<'a> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.distance.cmp(&other.distance)
+        match self.distance.cmp(&other.distance) {
+            Equal => self.key.cmp(&other.key),
+            ordering => ordering,
+        }
     }
 }
 

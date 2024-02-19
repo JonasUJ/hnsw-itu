@@ -15,14 +15,14 @@ impl Default for Bruteforce {
 }
 
 impl Bruteforce {
-    pub fn new() -> Self {
-        Bruteforce { sketches: vec![] }
+    pub const fn new() -> Self {
+        Self { sketches: vec![] }
     }
 }
 
 impl Index for Bruteforce {
     fn add(&mut self, sketch: Sketch) {
-        self.sketches.push(sketch)
+        self.sketches.push(sketch);
     }
 
     fn search<'a>(&'a self, query: &Sketch, ef: usize) -> Vec<Distance<'a>> {
@@ -31,6 +31,20 @@ impl Index for Bruteforce {
             .enumerate()
             .map(|(key, sketch)| Distance::new(query.distance(sketch), key, sketch))
             .min_k(ef)
+    }
+
+    fn size(&self) -> usize {
+        self.sketches.len()
+    }
+}
+
+impl FromIterator<Sketch> for Bruteforce {
+    fn from_iter<T: IntoIterator<Item = Sketch>>(iter: T) -> Self {
+        let mut this = Self::new();
+        for i in iter {
+            this.add(i);
+        }
+        this
     }
 }
 

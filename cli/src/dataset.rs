@@ -1,17 +1,17 @@
-use std::{marker::PhantomData, path::Path};
+use std::{borrow::Cow, marker::PhantomData, path::Path};
 
 use ndarray::{array, s, Array1, Array2};
 
 use hdf5::{Dataset, Extents, File, H5Type, Result};
 
 #[derive(Clone)]
-pub struct BufferedDataset<T, D> {
-    file: File,
+pub struct BufferedDataset<'f, T, D> {
+    file: Cow<'f, File>,
     dataset: Dataset,
     _phantom: PhantomData<(T, D)>,
 }
 
-impl<T, D> BufferedDataset<T, D> {
+impl<'f, T, D> BufferedDataset<'f, T, D> {
     pub fn open<P>(path: P, dataset: &str) -> Result<Self>
     where
         P: AsRef<Path>,
@@ -19,7 +19,7 @@ impl<T, D> BufferedDataset<T, D> {
         let file = File::open(path)?;
         let dataset = file.dataset(dataset)?;
         Ok(BufferedDataset {
-            file,
+            file: Cow::Owned(file),
             dataset,
             _phantom: PhantomData,
         })
@@ -33,7 +33,19 @@ impl<T, D> BufferedDataset<T, D> {
         let file = File::create(path)?;
         let dataset = file.new_dataset::<u64>().shape(shape).create(dataset)?;
         Ok(BufferedDataset {
-            file,
+            file: Cow::Owned(file),
+            dataset,
+            _phantom: PhantomData,
+        })
+    }
+
+    pub fn with_file<S>(file: &'f File, shape: S, dataset: &str) -> Result<Self>
+    where
+        S: Into<Extents>,
+    {
+        let dataset = file.new_dataset::<u64>().shape(shape).create(dataset)?;
+        Ok(BufferedDataset {
+            file: Cow::Borrowed(file),
             dataset,
             _phantom: PhantomData,
         })
@@ -48,7 +60,7 @@ impl<T, D> BufferedDataset<T, D> {
     }
 }
 
-impl<T, D> BufferedDataset<T, D>
+impl<'f, T, D> BufferedDataset<'f, T, D>
 where
     T: From<Array1<D>>,
     D: H5Type + Clone,
@@ -62,7 +74,7 @@ where
     }
 }
 
-impl<T, D> IntoIterator for BufferedDataset<T, D>
+impl<'f, T, D> IntoIterator for BufferedDataset<'f, T, D>
 where
     T: From<Array1<D>>,
     D: H5Type + Clone,
@@ -135,7 +147,7 @@ struct ArrayIter<D> {
 
 impl<D> ArrayIter<D> {
     fn empty() -> Self {
-        ArrayIter {
+        Self {
             array: array![[], []],
             cur: 0,
             len: 0,
