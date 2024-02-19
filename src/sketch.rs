@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use ndarray::{arr1, Array1};
+
+#[derive(Clone, Debug)]
 pub struct Sketch {
     data: [u64; 16],
 }
@@ -13,6 +15,21 @@ impl Sketch {
             .iter()
             .zip(other.data.iter())
             .fold(0, |acc, (lhs, rhs)| acc + (lhs ^ rhs).count_ones() as usize)
+    }
+}
+
+impl From<Array1<u64>> for Sketch {
+    fn from(value: Array1<u64>) -> Self {
+        Sketch::new([
+            value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
+            value[8], value[9], value[10], value[11], value[12], value[13], value[14], value[15],
+        ])
+    }
+}
+
+impl From<Sketch> for Array1<u64> {
+    fn from(value: Sketch) -> Self {
+        arr1(&value.data)
     }
 }
 

@@ -1,9 +1,9 @@
 use std::{path::PathBuf, str::FromStr, time::SystemTime};
 
 use clap::{arg, Parser};
-use hdf5::{types::VarLenUnicode, File, Result};
+use hdf5::{types::VarLenUnicode, Result};
 use hnsw_itu::{Bruteforce, Index, Sketch};
-use ndarray::{s, Array1};
+use ndarray::arr1;
 
 #[allow(dead_code)]
 mod dataset;
@@ -29,8 +29,8 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let dataset = SketchDataset::create(cli.dataset, "hamming")?;
-    let queries = SketchDataset::create(cli.queries, "hamming")?;
+    let dataset = BufferedDataset::open(cli.dataset, "hamming")?;
+    let queries = BufferedDataset::open(cli.queries, "hamming")?;
 
     let mut index = Bruteforce::new();
 
@@ -45,50 +45,19 @@ fn main() -> Result<()> {
     let results = index.knns(queries_vec.iter().collect(), cli.k);
     println!("search time: {:?}", searching_time.elapsed());
 
-    let file = File::create("result.h5")?;
-    let knns = file
-        .new_dataset::<u64>()
-        .shape((10_000, cli.k))
-        .create("knns")?;
-    let dist = file
-        .new_dataset::<u64>()
-        .shape((10_000, cli.k))
-        .create("dist")?;
+    let knns = BufferedDataset::create("result.h5", (queries_vec.len(), cli.k), "knns")?;
 
     for (i, res) in results.into_iter().enumerate() {
-        let v: Vec<u64> = res.iter().map(|d| d.key() as u64 + 1).collect();
-        let arr: Array1<u64> = v.into();
-        knns.write_slice(arr.view(), s![i, ..])?;
-
-        let v: Vec<u64> = res.iter().map(|d| d.distance() as u64).collect();
-        let arr: Array1<u64> = v.into();
-        dist.write_slice(arr.view(), s![i, ..])?;
+        let v = arr1(&res.iter().map(|d| d.key() as u64 + 1).collect::<Vec<u64>>());
+        knns.write_row(v, i)?;
     }
 
-    let _ = file
-        .new_attr::<VarLenUnicode>()
-        .create("data")?
-        .write_scalar(&VarLenUnicode::from_str("hamming").unwrap());
-    let _ = file
-        .new_attr::<VarLenUnicode>()
-        .create("size")?
-        .write_scalar(&VarLenUnicode::from_str("100K").unwrap());
-    let _ = file
-        .new_attr::<VarLenUnicode>()
-        .create("algo")?
-        .write_scalar(&VarLenUnicode::from_str("bruteforce").unwrap());
-    let _ = file
-        .new_attr::<usize>()
-        .create("buildtime")?
-        .write_scalar(&0);
-    let _ = file
-        .new_attr::<usize>()
-        .create("querytime")?
-        .write_scalar(&0);
-    let _ = file
-        .new_attr::<VarLenUnicode>()
-        .create("params")?
-        .write_scalar(&VarLenUnicode::from_str("params").unwrap());
+    knns.add_attr("data", &VarLenUnicode::from_str("hamming").unwrap())?;
+    knns.add_attr("size", &VarLenUnicode::from_str("100K").unwrap())?;
+    knns.add_attr("algo", &VarLenUnicode::from_str("bruteforce").unwrap())?;
+    knns.add_attr("buildtime", &0)?;
+    knns.add_attr("querytime", &0)?;
+    knns.add_attr("params", &VarLenUnicode::from_str("params").unwrap())?;
 
     Ok(())
 }

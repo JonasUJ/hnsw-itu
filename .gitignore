@@ -19,6 +19,7 @@ Cargo.lock
 # Flamegraph
 flamegraph.svg
 perf.data
+perf.data.old
 
 # Eval
 *.csv

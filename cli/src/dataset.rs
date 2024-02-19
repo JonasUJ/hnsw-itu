@@ -1,48 +1,101 @@
-use std::path::PathBuf;
+use std::{marker::PhantomData, path::Path};
 
-use hnsw_itu::Sketch;
 use ndarray::{array, s, Array1, Array2};
 
-use hdf5::{Dataset, File, Result};
+use hdf5::{Dataset, Extents, File, H5Type, Result};
 
 #[derive(Clone)]
-pub struct SketchDataset {
+pub struct BufferedDataset<T, D> {
     file: File,
     dataset: Dataset,
+    _phantom: PhantomData<(T, D)>,
 }
 
-impl SketchDataset {
-    pub fn create(path: PathBuf, dataset: &str) -> Result<Self> {
+impl<T, D> BufferedDataset<T, D> {
+    pub fn open<P>(path: P, dataset: &str) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
         let file = File::open(path)?;
         let dataset = file.dataset(dataset)?;
-        Ok(SketchDataset { file, dataset })
+        Ok(BufferedDataset {
+            file,
+            dataset,
+            _phantom: PhantomData,
+        })
+    }
+
+    pub fn create<P, S>(path: P, shape: S, dataset: &str) -> Result<Self>
+    where
+        P: AsRef<Path>,
+        S: Into<Extents>,
+    {
+        let file = File::create(path)?;
+        let dataset = file.new_dataset::<u64>().shape(shape).create(dataset)?;
+        Ok(BufferedDataset {
+            file,
+            dataset,
+            _phantom: PhantomData,
+        })
+    }
+
+    pub fn add_attr<'n, V, N>(&self, name: N, value: &V) -> Result<()>
+    where
+        V: H5Type,
+        N: Into<&'n str>,
+    {
+        self.file.new_attr::<V>().create(name)?.write_scalar(value)
     }
 }
 
-impl IntoIterator for SketchDataset {
-    type Item = Sketch;
+impl<T, D> BufferedDataset<T, D>
+where
+    T: From<Array1<D>>,
+    D: H5Type + Clone,
+{
+    pub fn write_row(&self, data: T, row: usize) -> Result<()>
+    where
+        T: Into<Array1<D>>,
+    {
+        let arr: Array1<D> = data.into();
+        self.dataset.write_slice(arr.view(), s![row, ..])
+    }
+}
 
-    type IntoIter = SketchDatasetIter;
+impl<T, D> IntoIterator for BufferedDataset<T, D>
+where
+    T: From<Array1<D>>,
+    D: H5Type + Clone,
+{
+    type Item = T;
+
+    type IntoIter = BufferedDatasetIter<T, D>;
 
     fn into_iter(self) -> Self::IntoIter {
-        SketchDatasetIter {
+        BufferedDatasetIter {
             dataset: self.dataset.clone(),
             buffer: ArrayIter::empty(),
             cur: 0,
             len: *self.dataset.shape().first().expect("dataset has no shape"),
+            _phantom: PhantomData,
         }
     }
 }
 
-pub struct SketchDatasetIter {
+pub struct BufferedDatasetIter<T, D> {
     dataset: Dataset,
-    buffer: ArrayIter,
+    buffer: ArrayIter<D>,
     cur: usize,
     len: usize,
+    _phantom: PhantomData<T>,
 }
 
-impl Iterator for SketchDatasetIter {
-    type Item = Sketch;
+impl<T, D> Iterator for BufferedDatasetIter<T, D>
+where
+    T: From<Array1<D>>,
+    D: H5Type + Clone,
+{
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         const BUFFER_SIZE: usize = 50_000;
@@ -53,7 +106,7 @@ impl Iterator for SketchDatasetIter {
 
         if let Some(arr) = self.buffer.next() {
             self.cur += 1;
-            return Some(Sketch::new(ndarray_to_array(arr)));
+            return Some(arr.into());
         }
 
         let to = self.len.min(self.cur + BUFFER_SIZE);
@@ -70,24 +123,17 @@ impl Iterator for SketchDatasetIter {
         };
 
         self.cur += 1;
-        self.buffer.next().map(ndarray_to_array).map(Sketch::new)
+        self.buffer.next().map(Into::into)
     }
 }
 
-fn ndarray_to_array(array: Array1<u64>) -> [u64; 16] {
-    [
-        array[0], array[1], array[2], array[3], array[4], array[5], array[6], array[7], array[8],
-        array[9], array[10], array[11], array[12], array[13], array[14], array[15],
-    ]
-}
-
-struct ArrayIter {
-    array: Array2<u64>,
+struct ArrayIter<D> {
+    array: Array2<D>,
     cur: usize,
     len: usize,
 }
 
-impl ArrayIter {
+impl<D> ArrayIter<D> {
     fn empty() -> Self {
         ArrayIter {
             array: array![[], []],
@@ -97,8 +143,8 @@ impl ArrayIter {
     }
 }
 
-impl Iterator for ArrayIter {
-    type Item = Array1<u64>;
+impl<D: H5Type + Clone> Iterator for ArrayIter<D> {
+    type Item = Array1<D>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur == self.len {
