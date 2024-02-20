@@ -6,11 +6,14 @@ use std::{
 
 use clap::{arg, Args, Parser, Subcommand};
 use hdf5::{types::VarLenUnicode, File, Result};
-use hnsw_itu::{Bruteforce, Index, Sketch};
+use hnsw_itu::{Bruteforce, Index};
 use ndarray::arr1;
 
 mod dataset;
+mod sketch;
+
 use crate::dataset::*;
+use crate::sketch::*;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();

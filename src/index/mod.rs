@@ -1,31 +1,83 @@
 pub mod bruteforce;
+use std::{cmp::Ordering, marker::Sync};
+
 pub use bruteforce::Bruteforce;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 
-use crate::{Distance, Sketch};
-
-pub trait Index {
-    fn add(&mut self, sketch: Sketch);
+pub trait Index<P> {
+    fn add(&mut self, sketch: P);
     fn size(&self) -> usize;
-    fn search<'a, Q>(&'a self, query: Q, ef: usize) -> Vec<Distance<'a>>
+    fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
     where
-        Q: AsRef<Sketch>;
+        P: Point;
 
-    fn knns<'a, Q>(
-        &'a self,
-        queries: impl IntoIterator<Item = Q>,
-        ef: usize,
-    ) -> Vec<Vec<Distance<'a>>>
+    fn knns<I>(&self, queries: I, ef: usize) -> Vec<Vec<Distance<'_, P>>>
     where
-        Self: std::marker::Sync,
-        Q: AsRef<Sketch>,
+        Self: Sync,
+        I: IntoIterator<Item = P>,
+        P: Point,
     {
-        let queries: Vec<_> = queries.into_iter().collect();
-        let sketches: Vec<_> = queries.iter().map(|q| q.as_ref()).collect();
-
-        sketches
+        queries
+            .into_iter()
+            .collect::<Vec<_>>()
             .into_par_iter()
             .map(|q| self.search(q, ef))
             .collect()
+    }
+}
+
+pub trait Point: Sync {
+    fn distance(&self, other: &Self) -> usize;
+}
+
+#[derive(Debug)]
+pub struct Distance<'a, P> {
+    distance: usize,
+    key: usize,
+    point: &'a P,
+}
+
+impl<'a, P> Distance<'a, P> {
+    pub const fn new(distance: usize, key: usize, point: &'a P) -> Self {
+        Self {
+            distance,
+            key,
+            point,
+        }
+    }
+
+    pub const fn distance(&self) -> usize {
+        self.distance
+    }
+
+    pub const fn key(&self) -> usize {
+        self.key
+    }
+
+    pub const fn point(&self) -> &'a P {
+        self.point
+    }
+}
+
+impl<'a, P> PartialEq for Distance<'a, P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl<'a, P> PartialOrd for Distance<'a, P> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'a, P> Eq for Distance<'a, P> {}
+
+impl<'a, P> Ord for Distance<'a, P> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.distance.cmp(&other.distance) {
+            Ordering::Equal => self.key.cmp(&other.key),
+            ordering => ordering,
+        }
     }
 }

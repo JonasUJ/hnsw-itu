@@ -1,49 +1,48 @@
-use std::{collections::BinaryHeap, fmt::Debug};
+use std::collections::BinaryHeap;
 
-use crate::{Distance, Sketch};
+use crate::{Distance, Point};
 
 use super::Index;
 
-pub struct Bruteforce {
-    sketches: Vec<Sketch>,
+pub struct Bruteforce<P> {
+    points: Vec<P>,
 }
 
-impl Default for Bruteforce {
+impl<P> Default for Bruteforce<P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Bruteforce {
+impl<P> Bruteforce<P> {
     pub const fn new() -> Self {
-        Self { sketches: vec![] }
+        Self { points: vec![] }
     }
 }
 
-impl Index for Bruteforce {
-    fn add(&mut self, sketch: Sketch) {
-        self.sketches.push(sketch);
+impl<P> Index<P> for Bruteforce<P> {
+    fn add(&mut self, sketch: P) {
+        self.points.push(sketch);
     }
 
-    fn search<'a, Q>(&'a self, query: Q, ef: usize) -> Vec<Distance<'a>>
+    fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
     where
-        Q: AsRef<Sketch>,
+        P: Point,
     {
-        let query = query.as_ref();
-        self.sketches
+        self.points
             .iter()
             .enumerate()
-            .map(|(key, sketch)| Distance::new(query.distance(sketch), key, sketch))
+            .map(|(key, point)| Distance::new(query.distance(point), key, point))
             .min_k(ef)
     }
 
     fn size(&self) -> usize {
-        self.sketches.len()
+        self.points.len()
     }
 }
 
-impl FromIterator<Sketch> for Bruteforce {
-    fn from_iter<T: IntoIterator<Item = Sketch>>(iter: T) -> Self {
+impl<P> FromIterator<P> for Bruteforce<P> {
+    fn from_iter<T: IntoIterator<Item = P>>(iter: T) -> Self {
         let mut this = Self::new();
         for i in iter {
             this.add(i);
@@ -56,7 +55,7 @@ trait MinK: Iterator {
     fn min_k(mut self, k: usize) -> Vec<Self::Item>
     where
         Self: Sized,
-        Self::Item: Ord + Debug,
+        Self::Item: Ord,
     {
         if k == 0 {
             return vec![];
