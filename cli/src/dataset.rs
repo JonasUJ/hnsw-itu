@@ -58,6 +58,10 @@ impl<'f, T, D> BufferedDataset<'f, T, D> {
     {
         self.file.new_attr::<V>().create(name)?.write_scalar(value)
     }
+
+    pub fn size(&self) -> usize {
+        *self.dataset.shape().first().expect("dataset has no shape")
+    }
 }
 
 impl<'f, T, D> BufferedDataset<'f, T, D>
@@ -88,7 +92,7 @@ where
             dataset: self.dataset.clone(),
             buffer: ArrayIter::empty(),
             cur: 0,
-            len: *self.dataset.shape().first().expect("dataset has no shape"),
+            len: self.size(),
             _phantom: PhantomData,
         }
     }

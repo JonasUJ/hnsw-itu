@@ -25,7 +25,11 @@ impl Index for Bruteforce {
         self.sketches.push(sketch);
     }
 
-    fn search<'a>(&'a self, query: &Sketch, ef: usize) -> Vec<Distance<'a>> {
+    fn search<'a, Q>(&'a self, query: Q, ef: usize) -> Vec<Distance<'a>>
+    where
+        Q: AsRef<Sketch>,
+    {
+        let query = query.as_ref();
         self.sketches
             .iter()
             .enumerate()

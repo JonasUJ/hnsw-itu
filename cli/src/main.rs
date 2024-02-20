@@ -72,18 +72,17 @@ struct Query {
 impl Action for Query {
     fn act(self) -> Result<()> {
         let dataset = BufferedDataset::open(self.datafile, "hamming")?;
-        let queries = BufferedDataset::open(self.queryfile, "hamming")?;
+        let queries = BufferedDataset::<'_, Sketch, _>::open(self.queryfile, "hamming")?;
 
         let buildtime = SystemTime::now();
         let index = Bruteforce::from_iter(dataset);
         let buildtime_sec = buildtime.elapsed().unwrap_or(Duration::ZERO).as_secs();
 
         let querytime = SystemTime::now();
-        let queries_vec: Vec<Sketch> = queries.into_iter().collect();
-        let results = index.knns(queries_vec.iter().collect(), self.k);
+        let results = index.knns(queries.clone(), self.k);
         let querytime_sec = querytime.elapsed().unwrap_or(Duration::ZERO).as_secs();
 
-        let knns = BufferedDataset::create(self.outfile, (queries_vec.len(), self.k), "knns")?;
+        let knns = BufferedDataset::create(self.outfile, (queries.size(), self.k), "knns")?;
 
         for (i, mut res) in results.into_iter().enumerate() {
             if self.sort {
@@ -141,16 +140,15 @@ struct GroundTruth {
 impl Action for GroundTruth {
     fn act(self) -> Result<()> {
         let dataset = BufferedDataset::open(self.datafile, "hamming")?;
-        let queries = BufferedDataset::open(self.queryfile, "hamming")?;
+        let queries = BufferedDataset::<'_, Sketch, _>::open(self.queryfile, "hamming")?;
 
         let index = Bruteforce::from_iter(dataset);
 
-        let queries_vec: Vec<Sketch> = queries.into_iter().collect();
-        let results = index.knns(queries_vec.iter().collect(), self.k);
+        let results = index.knns(queries.clone(), self.k);
 
         let file = File::create(self.outfile)?;
-        let knns = BufferedDataset::with_file(&file, (queries_vec.len(), self.k), "knns")?;
-        let dists = BufferedDataset::with_file(&file, (queries_vec.len(), self.k), "dists")?;
+        let knns = BufferedDataset::with_file(&file, (queries.size(), self.k), "knns")?;
+        let dists = BufferedDataset::with_file(&file, (queries.size(), self.k), "dists")?;
 
         for (i, mut res) in results.into_iter().enumerate() {
             if self.sort {

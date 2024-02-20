@@ -36,6 +36,12 @@ impl From<Sketch> for Array1<u64> {
     }
 }
 
+impl AsRef<Sketch> for Sketch {
+    fn as_ref(&self) -> &Sketch {
+        self
+    }
+}
+
 #[derive(Debug)]
 pub struct Distance<'a> {
     distance: usize,
