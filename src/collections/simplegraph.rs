@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{Graph, Idx};
 
-struct SimpleGraph<T> {
+pub struct SimpleGraph<T> {
     nodes: Vec<T>,
     adj_lists: Vec<HashSet<Idx>>,
     empty: HashSet<Idx>,
