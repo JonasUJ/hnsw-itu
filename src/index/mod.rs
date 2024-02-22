@@ -15,7 +15,7 @@ pub trait Index<P> {
     where
         Self: Sync,
         I: IntoIterator<Item = P>,
-        P: Point,
+        P: Point + Sync,
     {
         queries
             .into_iter()
@@ -26,7 +26,7 @@ pub trait Index<P> {
     }
 }
 
-pub trait Point: Sync {
+pub trait Point {
     fn distance(&self, other: &Self) -> usize;
 }
 

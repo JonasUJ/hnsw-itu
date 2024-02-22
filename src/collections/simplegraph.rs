@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::{Graph, Idx};
 
+#[derive(Debug)]
 pub struct SimpleGraph<T> {
     nodes: Vec<T>,
     adj_lists: Vec<HashSet<Idx>>,
@@ -13,9 +14,20 @@ impl<T> SimpleGraph<T> {
         Default::default()
     }
 
+    fn is_in_bounds(&self, v: Idx, w: Idx) -> bool {
+        let len = self.adj_lists.len();
+        v < len && w < len
+    }
+
     fn connect_directed(&mut self, src: Idx, target: Idx) {
         if let Some(set) = self.adj_lists.get_mut(src) {
             set.insert(target);
+        }
+    }
+
+    fn disconnect_directed(&mut self, src: Idx, target: Idx) {
+        if let Some(set) = self.adj_lists.get_mut(src) {
+            set.remove(&target);
         }
     }
 }
@@ -55,14 +67,21 @@ impl<T> Graph<T> for SimpleGraph<T> {
     }
 
     fn add_edge(&mut self, v: Idx, w: Idx) {
-        let len = self.adj_lists.len();
-        if v >= len || w >= len {
-            dbg!((v, w));
-            return;
+        if !self.is_in_bounds(v, w) {
+            return
         }
 
         self.connect_directed(v, w);
         self.connect_directed(w, v);
+    }
+
+    fn remove_edge(&mut self, v: Idx, w: Idx) {
+        if !self.is_in_bounds(v, w) {
+            return
+        }
+
+        self.disconnect_directed(v, w);
+        self.disconnect_directed(w, v);
     }
 
     fn neighborhood(&self, v: Idx) -> impl Iterator<Item = &Idx> {
@@ -119,7 +138,23 @@ mod tests {
         for i in 1..6 {
             graph.add_edge(0, i);
         }
-        dbg!(graph.neighborhood(0).collect::<Vec<_>>());
         assert!(unordered_eq(graph.neighborhood(0).map(|i| *i), 1..6));
+    }
+
+    #[test]
+    fn test_clear_edges() {
+        let mut graph = SimpleGraph::from_iter(0..10);
+        for i in 1..6 {
+            graph.add_edge(0, i);
+        }
+        for i in 2..6 {
+            graph.add_edge(1, i);
+        }
+        assert!(unordered_eq(graph.neighborhood(0).map(|i| *i), 1..6));
+        assert!(unordered_eq(graph.neighborhood(1).map(|i| *i), vec![0, 2, 3, 4, 5]));
+
+        graph.clear_edges(1);
+        assert!(unordered_eq(graph.neighborhood(0).map(|i| *i), 2..6));
+        assert!(unordered_eq(graph.neighborhood(1).map(|i| *i), vec![]));
     }
 }
