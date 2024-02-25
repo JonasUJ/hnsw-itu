@@ -19,7 +19,7 @@ struct Dist {
 }
 
 impl<T> NSW<T> {
-    fn new(ep: T, ef: usize) -> Self {
+    pub fn new(ep: T, ef: usize) -> Self {
         let mut graph = SimpleGraph::new();
         let ep = graph.add(ep);
         Self { graph, ef, ep }
@@ -39,14 +39,14 @@ impl<T: Point + Clone> KNNS<T> for NSW<T> {
             })
             .collect::<Vec<_>>();
 
-        let mut visited: HashSet<Idx> = HashSet::from_iter(dists.iter().map(|d| d.idx));
+        let mut visited = dists.iter().map(|d| d.idx).collect::<HashSet<_>>();
         let iter = dists.into_iter();
-        let mut cands = BinaryHeap::from_iter(iter.clone());
-        let mut w = BinaryHeap::from_iter(iter.map(Reverse));
+        let mut w = iter.clone().collect::<BinaryHeap<_>>();
+        let mut cands = iter.map(Reverse).collect::<BinaryHeap<_>>();
 
-        while cands.len() > 0 {
-            let c = cands.pop().expect("cands can't be empty");
-            let Reverse(f) = w.peek().expect("w can't be empty");
+        while !cands.is_empty() {
+            let Reverse(c) = cands.pop().expect("cands can't be empty");
+            let f = w.peek().expect("w can't be empty");
 
             if c.dist > f.dist {
                 break;
@@ -58,7 +58,7 @@ impl<T: Point + Clone> KNNS<T> for NSW<T> {
                 }
 
                 visited.insert(*e);
-                let Reverse(f) = w.peek().expect("w can't be empty");
+                let f = w.peek().expect("w can't be empty");
 
                 let point = self.graph.get(*e).unwrap();
                 let e_dist = Dist {
@@ -70,8 +70,8 @@ impl<T: Point + Clone> KNNS<T> for NSW<T> {
                     continue;
                 }
 
-                cands.push(e_dist.clone());
-                w.push(Reverse(e_dist));
+                cands.push(Reverse(e_dist.clone()));
+                w.push(e_dist);
 
                 if w.len() > self.ef {
                     w.pop();
@@ -79,20 +79,23 @@ impl<T: Point + Clone> KNNS<T> for NSW<T> {
             }
         }
 
-        w.into_iter().map(|Reverse(dist)| dist.idx).take(k)
+        w.into_iter().map(|dist| dist.idx).take(k)
     }
 
     fn insert(&mut self, q: T) {
         let q_idx = self.graph.add(q);
         let q = self.graph.get(q_idx).unwrap().clone();
-        let w = BinaryHeap::from_iter(self.search(&q, vec![self.ep], self.ef));
+        let w = self
+            .search(&q, vec![self.ep], self.ef)
+            .collect::<BinaryHeap<_>>();
 
         for e in &w {
             self.graph.add_edge(q_idx, *e);
         }
 
         for e in w {
-            let e_conn = self.graph.neighborhood(e).cloned().collect::<Vec<_>>();
+            let e_elem = self.graph.get(e).unwrap();
+            let e_conn = self.graph.neighborhood(e).copied().collect::<Vec<_>>();
 
             if e_conn.len() <= self.ef {
                 continue;
@@ -103,7 +106,7 @@ impl<T: Point + Clone> KNNS<T> for NSW<T> {
                 .map(|idx| {
                     let v = self.graph.get(idx).unwrap();
                     Dist {
-                        dist: v.distance(&q),
+                        dist: v.distance(e_elem),
                         idx,
                     }
                 })
@@ -118,27 +121,27 @@ impl<T: Point + Clone> KNNS<T> for NSW<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::unordered_eq;
+
     use super::*;
 
     impl Point for i32 {
         fn distance(&self, other: &Self) -> usize {
-            (other - self).abs() as usize
+            (other - self).unsigned_abs() as usize
         }
     }
 
     #[test]
     fn test_nsw() {
-        let mut nsw = NSW::new(0, 3);
+        let k = 4;
+        let mut nsw = NSW::new(0, k);
 
         //for i in vec![4, 5, 2, 8, 7, 9, 1, 3, 6] {
         for i in 1..10 {
             nsw.insert(i);
-            dbg!(i, &nsw);
         }
 
-        let knns = nsw.search(&4, vec![nsw.ep], 3).collect::<Vec<_>>();
-        dbg!(knns);
-
-        assert!(false);
+        let knns = nsw.search(&5, vec![nsw.ep], k).collect::<Vec<_>>();
+        assert!(unordered_eq(knns, 3..=6));
     }
 }

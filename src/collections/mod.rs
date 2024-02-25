@@ -20,7 +20,7 @@ pub trait Graph<T> {
     fn size(&self) -> usize;
 
     fn is_connected(&self, v: Idx, w: Idx) -> bool {
-        self.neighborhood(v).position(|&i| i == w).is_some()
+        self.neighborhood(v).any(|&i| i == w)
     }
 
     fn degree(&self, v: Idx) -> usize {
@@ -28,7 +28,7 @@ pub trait Graph<T> {
     }
 
     fn clear_edges(&mut self, v: Idx) {
-        let neighbors = self.neighborhood(v).cloned().collect::<Vec<_>>();
+        let neighbors = self.neighborhood(v).copied().collect::<Vec<_>>();
         for w in neighbors {
             self.remove_edge(v, w);
         }

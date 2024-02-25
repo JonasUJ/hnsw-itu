@@ -11,7 +11,7 @@ pub struct SimpleGraph<T> {
 
 impl<T> SimpleGraph<T> {
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     fn is_in_bounds(&self, v: Idx, w: Idx) -> bool {
@@ -34,10 +34,10 @@ impl<T> SimpleGraph<T> {
 
 impl<T> Default for SimpleGraph<T> {
     fn default() -> Self {
-        SimpleGraph {
-            nodes: Default::default(),
-            adj_lists: Default::default(),
-            empty: Default::default(),
+        Self {
+            nodes: Vec::default(),
+            adj_lists: Vec::default(),
+            empty: HashSet::default(),
         }
     }
 }
@@ -46,9 +46,9 @@ impl<T> FromIterator<T> for SimpleGraph<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let nodes = iter.into_iter().collect::<Vec<T>>();
         let count = nodes.len();
-        SimpleGraph {
+        Self {
             nodes,
-            adj_lists: vec![Default::default(); count],
+            adj_lists: vec![HashSet::default(); count],
             empty: Default::default(),
         }
     }
@@ -68,7 +68,7 @@ impl<T> Graph<T> for SimpleGraph<T> {
 
     fn add_edge(&mut self, v: Idx, w: Idx) {
         if !self.is_in_bounds(v, w) {
-            return
+            return;
         }
 
         self.connect_directed(v, w);
@@ -77,7 +77,7 @@ impl<T> Graph<T> for SimpleGraph<T> {
 
     fn remove_edge(&mut self, v: Idx, w: Idx) {
         if !self.is_in_bounds(v, w) {
-            return
+            return;
         }
 
         self.disconnect_directed(v, w);
@@ -99,8 +99,9 @@ impl<T> Graph<T> for SimpleGraph<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::unordered_eq;
+
     use super::*;
-    use std::hash::Hash;
 
     #[test]
     fn test_add() {
@@ -120,25 +121,13 @@ mod tests {
         assert!(graph.is_connected(0, 1));
     }
 
-    fn unordered_eq<T, I1, I2>(a: I1, b: I2) -> bool
-    where
-        T: Eq + Hash,
-        I1: IntoIterator<Item = T>,
-        I2: IntoIterator<Item = T>,
-    {
-        let a: HashSet<_> = a.into_iter().collect();
-        let b: HashSet<_> = b.into_iter().collect();
-
-        a == b
-    }
-
     #[test]
     fn test_neighborhood() {
         let mut graph = SimpleGraph::from_iter(0..10);
         for i in 1..6 {
             graph.add_edge(0, i);
         }
-        assert!(unordered_eq(graph.neighborhood(0).map(|i| *i), 1..6));
+        assert!(unordered_eq(graph.neighborhood(0).copied(), 1..6));
     }
 
     #[test]
@@ -150,11 +139,14 @@ mod tests {
         for i in 2..6 {
             graph.add_edge(1, i);
         }
-        assert!(unordered_eq(graph.neighborhood(0).map(|i| *i), 1..6));
-        assert!(unordered_eq(graph.neighborhood(1).map(|i| *i), vec![0, 2, 3, 4, 5]));
+        assert!(unordered_eq(graph.neighborhood(0).copied(), 1..6));
+        assert!(unordered_eq(
+            graph.neighborhood(1).copied(),
+            vec![0, 2, 3, 4, 5]
+        ));
 
         graph.clear_edges(1);
-        assert!(unordered_eq(graph.neighborhood(0).map(|i| *i), 2..6));
-        assert!(unordered_eq(graph.neighborhood(1).map(|i| *i), vec![]));
+        assert!(unordered_eq(graph.neighborhood(0).copied(), 2..6));
+        assert!(unordered_eq(graph.neighborhood(1).copied(), vec![]));
     }
 }

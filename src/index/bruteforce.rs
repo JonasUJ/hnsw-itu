@@ -1,4 +1,4 @@
-use crate::{Distance, Point, MinK};
+use crate::{Distance, MinK, Point};
 
 use super::Index;
 
