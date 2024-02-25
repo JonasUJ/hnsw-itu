@@ -25,3 +25,6 @@ perf.data.old
 *.csv
 data/
 *.h5
+
+# VS Code
+.vscode
