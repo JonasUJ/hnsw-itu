@@ -4,9 +4,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use clap::{arg, Args, Parser, Subcommand};
+use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File, Result};
-use hnsw_itu::{Bruteforce, Index};
+use hnsw_itu::{Bruteforce, Index, Point, NSW};
 use ndarray::arr1;
 
 mod dataset;
@@ -48,6 +48,61 @@ impl Commands {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum Algorithm {
+    Bruteforce,
+    Nsw,
+}
+
+impl Algorithm {
+    fn create<P: Point>(&self, dataset: impl IntoIterator<Item = P>, k: usize) -> Indexes<P> {
+        match self {
+            Algorithm::Bruteforce => {
+                let bruteforce = dataset.into_iter().collect();
+                Indexes::Bruteforce(bruteforce)
+            }
+            Algorithm::Nsw => {
+                let mut iter = dataset.into_iter();
+                let ep = iter.next().expect("dataset is empty");
+                let mut nsw = NSW::new(ep, k);
+                nsw.extend(iter);
+                Indexes::NSW(nsw)
+            }
+        }
+    }
+}
+
+pub enum Indexes<P> {
+    Bruteforce(Bruteforce<P>),
+    NSW(NSW<P>),
+}
+
+impl<P: Point> Index<P> for Indexes<P> {
+    fn add(&mut self, point: P) {
+        match self {
+            Indexes::Bruteforce(bruteforce) => bruteforce.add(point),
+            Indexes::NSW(nsw) => nsw.add(point),
+        }
+    }
+
+    fn size(&self) -> usize {
+        match self {
+            Indexes::Bruteforce(bruteforce) => bruteforce.size(),
+            Indexes::NSW(nsw) => nsw.size(),
+        }
+    }
+
+    fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<hnsw_itu::Distance<'a, P>>
+    where
+        P: Point,
+    {
+        match self {
+            Indexes::Bruteforce(bruteforce) => bruteforce.search(query, ef),
+            Indexes::NSW(nsw) => nsw.search(query, ef),
+        }
+    }
+}
+
 /// Query dataset and generate result file
 #[derive(Args)]
 struct Query {
@@ -67,6 +122,9 @@ struct Query {
     #[arg(short, default_value_t = 10)]
     k: usize,
 
+    #[arg(short, long, value_enum, default_value_t = Algorithm::Nsw)]
+    algorithm: Algorithm,
+
     /// Put nearest neighbors in sorted (ascending) order
     #[arg(short, long, default_value_t = false)]
     sort: bool,
@@ -78,7 +136,7 @@ impl Action for Query {
         let queries = BufferedDataset::<'_, Sketch, _>::open(self.queryfile, "hamming")?;
 
         let buildtime = SystemTime::now();
-        let index = Bruteforce::from_iter(dataset);
+        let index = self.algorithm.create(dataset, self.k);
         let buildtime_sec = buildtime.elapsed().unwrap_or(Duration::ZERO).as_secs();
 
         let querytime = SystemTime::now();
@@ -107,7 +165,7 @@ impl Action for Query {
 
         knns.add_attr("data", &VarLenUnicode::from_str("hamming").unwrap())?;
         knns.add_attr("size", &VarLenUnicode::from_str(size.as_str()).unwrap())?;
-        knns.add_attr("algo", &VarLenUnicode::from_str("bruteforce").unwrap())?;
+        knns.add_attr("algo", &VarLenUnicode::from_str(format!("{:?}", self.algorithm).as_str()).unwrap())?;
         knns.add_attr("buildtime", &buildtime_sec)?;
         knns.add_attr("querytime", &querytime_sec)?;
         knns.add_attr("params", &VarLenUnicode::from_str("params").unwrap())?;
