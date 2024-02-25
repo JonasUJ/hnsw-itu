@@ -1,8 +1,6 @@
-mod algs;
 mod collections;
 mod index;
 
-pub use crate::algs::*;
 pub use crate::collections::*;
 pub use crate::index::*;
 

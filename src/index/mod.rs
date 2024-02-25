@@ -1,11 +1,13 @@
 pub mod bruteforce;
+pub mod nsw;
 use std::{cmp::Ordering, marker::Sync};
 
 pub use bruteforce::Bruteforce;
+pub use nsw::NSW;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 
 pub trait Index<P> {
-    fn add(&mut self, sketch: P);
+    fn add(&mut self, point: P);
     fn size(&self) -> usize;
     fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
     where
@@ -30,7 +32,7 @@ pub trait Point {
     fn distance(&self, other: &Self) -> usize;
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Distance<'a, P> {
     distance: usize,
     key: usize,

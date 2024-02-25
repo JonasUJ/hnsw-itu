@@ -19,8 +19,8 @@ impl<P> Bruteforce<P> {
 }
 
 impl<P> Index<P> for Bruteforce<P> {
-    fn add(&mut self, sketch: P) {
-        self.points.push(sketch);
+    fn add(&mut self, point: P) {
+        self.points.push(point);
     }
 
     fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
