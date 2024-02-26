@@ -48,3 +48,11 @@ impl<P> FromIterator<P> for Bruteforce<P> {
         this
     }
 }
+
+impl<P> Extend<P> for Bruteforce<P> {
+    fn extend<T: IntoIterator<Item = P>>(&mut self, iter: T) {
+        for i in iter {
+            self.add(i);
+        }
+    }
+}

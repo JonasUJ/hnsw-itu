@@ -32,11 +32,21 @@ pub trait Point {
     fn distance(&self, other: &Self) -> usize;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Distance<'a, P> {
     distance: usize,
     key: usize,
     point: &'a P,
+}
+
+impl<'a, P> Clone for Distance<'a, P> {
+    fn clone(&self) -> Self {
+        Self {
+            distance: self.distance,
+            key: self.key,
+            point: self.point,
+        }
+    }
 }
 
 impl<'a, P> Distance<'a, P> {

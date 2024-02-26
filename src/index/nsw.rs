@@ -26,18 +26,18 @@ impl<P> NSW<P> {
     }
 }
 
-impl<P: Point + Clone> Index<P> for NSW<P> {
+impl<P: Point> Index<P> for NSW<P> {
     fn add(&mut self, point: P) {
-        let q_idx = self.graph.add(point);
-        let q = self.graph.get(q_idx).unwrap().clone();
+        let point_idx = self.graph.add(point);
+        let point = self.graph.get(point_idx).unwrap();
         let w = self
-            .search(&q, self.ef)
+            .search(point, self.ef)
             .into_iter()
             .map(|dist| dist.key())
             .collect::<BinaryHeap<_>>();
 
         for e in &w {
-            self.graph.add_edge(q_idx, *e);
+            self.graph.add_edge(point_idx, *e);
         }
 
         for e in w {
@@ -113,6 +113,14 @@ impl<P: Point + Clone> Index<P> for NSW<P> {
         }
 
         w.into_iter().take(k).collect()
+    }
+}
+
+impl<P: Point> Extend<P> for NSW<P> {
+    fn extend<T: IntoIterator<Item = P>>(&mut self, iter: T) {
+        for i in iter {
+            self.add(i);
+        }
     }
 }
 
