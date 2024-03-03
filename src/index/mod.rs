@@ -6,8 +6,14 @@ pub use bruteforce::Bruteforce;
 pub use nsw::NSW;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 
-pub trait Index<P> {
+pub trait IndexBuilder<P> {
+    type Index: Index<P>;
+
     fn add(&mut self, point: P);
+    fn build(self) -> Self::Index;
+}
+
+pub trait Index<P> {
     fn size(&self) -> usize;
     fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
     where

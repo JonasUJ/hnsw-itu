@@ -1,4 +1,4 @@
-use crate::{Distance, MinK, Point};
+use crate::{Distance, IndexBuilder, MinK, Point};
 
 use super::Index;
 
@@ -18,11 +18,19 @@ impl<P> Bruteforce<P> {
     }
 }
 
-impl<P> Index<P> for Bruteforce<P> {
+impl<P> IndexBuilder<P> for Bruteforce<P> {
+    type Index = Self;
+
     fn add(&mut self, point: P) {
         self.points.push(point);
     }
 
+    fn build(self) -> Self::Index {
+        self
+    }
+}
+
+impl<P> Index<P> for Bruteforce<P> {
     fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
     where
         P: Point,

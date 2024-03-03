@@ -6,7 +6,7 @@ use std::{
 
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File, Result};
-use hnsw_itu::{Bruteforce, Index, Point, NSW};
+use hnsw_itu::{nsw::NSWBuilder, Bruteforce, Index, IndexBuilder, Point, NSW};
 use ndarray::arr1;
 
 mod dataset;
@@ -57,16 +57,15 @@ enum Algorithm {
 impl Algorithm {
     fn create<P: Point>(&self, dataset: impl IntoIterator<Item = P>, k: usize) -> Indexes<P> {
         match self {
-            Algorithm::Bruteforce => {
+            Self::Bruteforce => {
                 let bruteforce = dataset.into_iter().collect();
                 Indexes::Bruteforce(bruteforce)
             }
-            Algorithm::Nsw => {
-                let mut iter = dataset.into_iter();
-                let ep = iter.next().expect("dataset is empty");
-                let mut nsw = NSW::new(ep, k);
-                nsw.extend(iter);
-                Indexes::NSW(nsw)
+            Self::Nsw => {
+                let iter = dataset.into_iter();
+                let mut builder = NSWBuilder::new(k);
+                builder.extend(iter);
+                Indexes::NSW(builder.build())
             }
         }
     }
@@ -78,17 +77,10 @@ pub enum Indexes<P> {
 }
 
 impl<P: Point> Index<P> for Indexes<P> {
-    fn add(&mut self, point: P) {
-        match self {
-            Indexes::Bruteforce(bruteforce) => bruteforce.add(point),
-            Indexes::NSW(nsw) => nsw.add(point),
-        }
-    }
-
     fn size(&self) -> usize {
         match self {
-            Indexes::Bruteforce(bruteforce) => bruteforce.size(),
-            Indexes::NSW(nsw) => nsw.size(),
+            Self::Bruteforce(bruteforce) => bruteforce.size(),
+            Self::NSW(nsw) => nsw.size(),
         }
     }
 
@@ -97,8 +89,8 @@ impl<P: Point> Index<P> for Indexes<P> {
         P: Point,
     {
         match self {
-            Indexes::Bruteforce(bruteforce) => bruteforce.search(query, ef),
-            Indexes::NSW(nsw) => nsw.search(query, ef),
+            Self::Bruteforce(bruteforce) => bruteforce.search(query, ef),
+            Self::NSW(nsw) => nsw.search(query, ef),
         }
     }
 }
@@ -147,7 +139,7 @@ impl Action for Query {
 
         for (i, mut res) in results.into_iter().enumerate() {
             if self.sort {
-                res.sort()
+                res.sort();
             }
 
             let v = arr1(&res.iter().map(|d| d.key() as u64 + 1).collect::<Vec<u64>>());
@@ -165,7 +157,10 @@ impl Action for Query {
 
         knns.add_attr("data", &VarLenUnicode::from_str("hamming").unwrap())?;
         knns.add_attr("size", &VarLenUnicode::from_str(size.as_str()).unwrap())?;
-        knns.add_attr("algo", &VarLenUnicode::from_str(format!("{:?}", self.algorithm).as_str()).unwrap())?;
+        knns.add_attr(
+            "algo",
+            &VarLenUnicode::from_str(format!("{:?}", self.algorithm).as_str()).unwrap(),
+        )?;
         knns.add_attr("buildtime", &buildtime_sec)?;
         knns.add_attr("querytime", &querytime_sec)?;
         knns.add_attr("params", &VarLenUnicode::from_str("params").unwrap())?;
@@ -213,7 +208,7 @@ impl Action for GroundTruth {
 
         for (i, mut res) in results.into_iter().enumerate() {
             if self.sort {
-                res.sort()
+                res.sort();
             }
 
             let (nn, dist): (Vec<_>, Vec<_>) = res
