@@ -4,6 +4,28 @@ use std::{
     collections::{BinaryHeap, HashSet},
 };
 
+fn select_neighbors<'a, P: Point>(
+    mut candidates: BinaryHeap<Reverse<Distance<'a, P>>>,
+    m: usize,
+) -> Vec<Distance<'a, P>> {
+    let mut return_list = Vec::<Distance<'a, P>>::new();
+
+    while let Some(Reverse(e)) = candidates.pop() {
+        if return_list.len() >= m {
+            break;
+        }
+
+        if return_list
+            .iter()
+            .all(|r| e.point().distance(r.point()) > e.distance())
+        {
+            return_list.push(e);
+        }
+    }
+
+    return_list
+}
+
 fn insert2<P: Point>(graph: &mut impl Graph<P>, point: P, ef: usize, ep: Idx) {
     let point_idx = graph.add(point);
 
@@ -181,10 +203,7 @@ mod tests {
         let k = 4;
         let mut builder = NSWBuilder::new(k);
 
-        //for i in vec![4, 5, 2, 8, 7, 9, 1, 3, 6] {
-        for i in 1..10 {
-            builder.add(i);
-        }
+        builder.extend(1..10);
 
         let nsw = builder.build();
         let knns = nsw
@@ -193,5 +212,24 @@ mod tests {
             .map(|dist| dist.point())
             .copied();
         assert!(unordered_eq(knns, 3..=6));
+    }
+
+    #[test]
+    fn test_heuristic() {
+        let k = 4;
+        let q = 10;
+        let mut builder = NSWBuilder::new(k);
+        let numbers = vec![1, 5, 6, 7, 16, 18];
+        let expected = vec![7, 16];
+
+        builder.extend(numbers.clone());
+
+        let heap = numbers.iter().map(|x| Reverse(Distance::new(x.distance(&q), 0, x))).collect::<BinaryHeap<_>>();
+
+        let actual = select_neighbors(heap, 3);
+
+        dbg!(&actual);
+
+        assert!(unordered_eq(actual.iter().map(|dist| dist.point()), expected.iter()));
     }
 }
