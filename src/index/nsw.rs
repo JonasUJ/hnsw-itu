@@ -26,45 +26,50 @@ fn select_neighbors<'a, P: Point>(
     return_list
 }
 
-fn insert2<P: Point>(graph: &mut impl Graph<P>, point: P, ef: usize, ep: Idx) {
+fn insert2<P: Point>(graph: &mut impl Graph<P>, point: P, m: usize, m_max: usize, ef: usize, ep: Idx) {
     let point_idx = graph.add(point);
 
-    insert(graph, point_idx, ef, ep)
+    insert(graph, point_idx, m, m_max, ef, ep)
 }
 
-fn insert<P: Point>(graph: &mut impl Graph<P>, point_idx: Idx, ef: usize, ep: Idx) {
+fn insert<P: Point>(graph: &mut impl Graph<P>, point_idx: Idx, m: usize, m_max: usize, ef: usize, ep: Idx) {
     let point = graph.get(point_idx).unwrap();
 
     let w = search(graph, point, ef, ep)
         .into_iter()
-        .map(|dist| dist.key())
+        .map(Reverse)
         .collect::<BinaryHeap<_>>();
 
-    for e in &w {
+    let neighbors = select_neighbors(w, m)
+        .into_iter()
+        .map(|x| x.key())
+        .collect::<Vec<usize>>();
+
+    for e in &neighbors {
         graph.add_edge(point_idx, *e);
     }
 
-    for e in w {
+    for e in neighbors {
         let e_elem = graph.get(e).unwrap();
         let e_conn = graph.neighborhood(e).copied().collect::<Vec<_>>();
 
-        if e_conn.len() <= ef {
+        if e_conn.len() <= m_max {
             continue;
         }
 
-        let e_new_conn = e_conn
+        let candidates = e_conn
             .into_iter()
             .map(|idx| {
                 let v = graph.get(idx).unwrap();
-                Dist {
-                    dist: v.distance(e_elem),
-                    idx,
-                }
+                Reverse(Distance::new(v.distance(e_elem), idx, v))
             })
-            .min_k(ef);
+            .collect::<BinaryHeap<_>>();
 
+        let e_new_conn = select_neighbors(candidates, m_max);
+
+        let a = e_new_conn.into_iter().map(|dist| dist.key()).collect::<Vec<_>>();
         graph.clear_edges(e);
-        graph.add_neighbors(e, e_new_conn.into_iter().map(|dist| dist.idx));
+        graph.add_neighbors(e, a.into_iter());
     }
 }
 
@@ -138,11 +143,11 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
 
     fn add(&mut self, point: P) {
         match self.ep {
-            Some(ep) => insert2(&mut self.graph, point, self.ef, ep),
+            Some(ep) => insert2(&mut self.graph, point, 16, 32, self.ef, ep),
             None => {
                 let ep = self.graph.add(point);
                 self.ep = Some(ep);
-                insert(&mut self.graph, ep, self.ef, ep)
+                insert(&mut self.graph, ep, 16, 32, self.ef, ep)
             }
         };
     }
@@ -161,12 +166,6 @@ pub struct NSW<P> {
     ep: Option<Idx>,
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct Dist {
-    dist: usize,
-    idx: Idx,
-}
-
 impl<P: Point> Index<P> for NSW<P> {
     fn size(&self) -> usize {
         self.graph.size()
@@ -174,7 +173,7 @@ impl<P: Point> Index<P> for NSW<P> {
 
     fn search<'a>(&'a self, query: &P, k: usize) -> Vec<Distance<'a, P>> {
         self.ep
-            .map_or_else(Vec::default, |ep| search(&self.graph, query, k, ep))
+            .map_or_else(Vec::default, |ep| search(&self.graph, query, 100, ep).into_iter().min_k(k))
     }
 }
 
@@ -224,12 +223,18 @@ mod tests {
 
         builder.extend(numbers.clone());
 
-        let heap = numbers.iter().map(|x| Reverse(Distance::new(x.distance(&q), 0, x))).collect::<BinaryHeap<_>>();
+        let heap = numbers
+            .iter()
+            .map(|x| Reverse(Distance::new(x.distance(&q), 0, x)))
+            .collect::<BinaryHeap<_>>();
 
         let actual = select_neighbors(heap, 3);
 
         dbg!(&actual);
 
-        assert!(unordered_eq(actual.iter().map(|dist| dist.point()), expected.iter()));
+        assert!(unordered_eq(
+            actual.iter().map(|dist| dist.point()),
+            expected.iter()
+        ));
     }
 }

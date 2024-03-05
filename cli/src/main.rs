@@ -63,7 +63,7 @@ impl Algorithm {
             }
             Self::Nsw => {
                 let iter = dataset.into_iter();
-                let mut builder = NSWBuilder::new(k);
+                let mut builder = NSWBuilder::new(50);
                 builder.extend(iter);
                 Indexes::NSW(builder.build())
             }
