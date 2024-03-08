@@ -12,7 +12,7 @@ pub struct BufferedDataset<'f, T, D> {
 }
 
 impl<'f, T, D> BufferedDataset<'f, T, D> {
-    pub fn open<P>(path: P, dataset: &str) -> Result<Self>
+    pub fn open<P>(path: &P, dataset: &str) -> Result<Self>
     where
         P: AsRef<Path>,
     {

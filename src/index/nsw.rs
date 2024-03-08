@@ -26,13 +26,27 @@ fn select_neighbors<'a, P: Point>(
     return_list
 }
 
-fn insert2<P: Point>(graph: &mut impl Graph<P>, point: P, m: usize, m_max: usize, ef: usize, ep: Idx) {
+fn insert2<P: Point>(
+    graph: &mut impl Graph<P>,
+    point: P,
+    m: usize,
+    m_max: usize,
+    ef: usize,
+    ep: Idx,
+) {
     let point_idx = graph.add(point);
 
     insert(graph, point_idx, m, m_max, ef, ep)
 }
 
-fn insert<P: Point>(graph: &mut impl Graph<P>, point_idx: Idx, m: usize, m_max: usize, ef: usize, ep: Idx) {
+fn insert<P: Point>(
+    graph: &mut impl Graph<P>,
+    point_idx: Idx,
+    m: usize,
+    m_max: usize,
+    ef: usize,
+    ep: Idx,
+) {
     let point = graph.get(point_idx).unwrap();
 
     let w = search(graph, point, ef, ep)
@@ -67,7 +81,10 @@ fn insert<P: Point>(graph: &mut impl Graph<P>, point_idx: Idx, m: usize, m_max: 
 
         let e_new_conn = select_neighbors(candidates, m_max);
 
-        let a = e_new_conn.into_iter().map(|dist| dist.key()).collect::<Vec<_>>();
+        let a = e_new_conn
+            .into_iter()
+            .map(|dist| dist.key())
+            .collect::<Vec<_>>();
         graph.clear_edges(e);
         graph.add_neighbors(e, a.into_iter());
     }
@@ -121,19 +138,39 @@ fn search<'a, P: Point>(
     w.into_iter().take(k).collect()
 }
 
+pub struct NSWOptions {
+    pub ef_construction: usize,
+    pub connections: usize,
+    pub max_connections: usize,
+}
+
+impl Default for NSWOptions {
+    fn default() -> Self {
+        Self {
+            ef_construction: 100,
+            connections: 16,
+            max_connections: 32,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct NSWBuilder<P> {
     graph: SimpleGraph<P>,
-    ef: usize,
     ep: Option<Idx>,
+    ef_construction: usize,
+    connections: usize,
+    max_connections: usize,
 }
 
 impl<P> NSWBuilder<P> {
-    pub fn new(ef: usize) -> Self {
+    pub fn new(options: NSWOptions) -> Self {
         Self {
             graph: SimpleGraph::default(),
-            ef,
             ep: None,
+            ef_construction: options.ef_construction,
+            connections: options.connections,
+            max_connections: options.max_connections,
         }
     }
 }
@@ -143,11 +180,25 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
 
     fn add(&mut self, point: P) {
         match self.ep {
-            Some(ep) => insert2(&mut self.graph, point, 16, 32, self.ef, ep),
+            Some(ep) => insert2(
+                &mut self.graph,
+                point,
+                self.connections,
+                self.max_connections,
+                self.ef_construction,
+                ep,
+            ),
             None => {
                 let ep = self.graph.add(point);
                 self.ep = Some(ep);
-                insert(&mut self.graph, ep, 16, 32, self.ef, ep)
+                insert(
+                    &mut self.graph,
+                    ep,
+                    self.connections,
+                    self.max_connections,
+                    self.ef_construction,
+                    ep,
+                )
             }
         };
     }
@@ -172,8 +223,9 @@ impl<P: Point> Index<P> for NSW<P> {
     }
 
     fn search<'a>(&'a self, query: &P, k: usize) -> Vec<Distance<'a, P>> {
-        self.ep
-            .map_or_else(Vec::default, |ep| search(&self.graph, query, 100, ep).into_iter().min_k(k))
+        self.ep.map_or_else(Vec::default, |ep| {
+            search(&self.graph, query, 100, ep).into_iter().min_k(k)
+        })
     }
 }
 
@@ -200,7 +252,10 @@ mod tests {
     #[test]
     fn test_nsw() {
         let k = 4;
-        let mut builder = NSWBuilder::new(k);
+        let mut builder = NSWBuilder::new(NSWOptions {
+            ef_construction: k,
+            ..NSWOptions::default()
+        });
 
         builder.extend(1..10);
 
@@ -217,7 +272,10 @@ mod tests {
     fn test_heuristic() {
         let k = 4;
         let q = 10;
-        let mut builder = NSWBuilder::new(k);
+        let mut builder = NSWBuilder::new(NSWOptions {
+            ef_construction: k,
+            ..NSWOptions::default()
+        });
         let numbers = vec![1, 5, 6, 7, 16, 18];
         let expected = vec![7, 16];
 

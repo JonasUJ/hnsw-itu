@@ -6,7 +6,10 @@ use std::{
 
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File, Result};
-use hnsw_itu::{nsw::NSWBuilder, Bruteforce, Index, IndexBuilder, Point, NSW};
+use hnsw_itu::{
+    nsw::{NSWBuilder, NSWOptions},
+    Bruteforce, Index, IndexBuilder, Point, NSW,
+};
 use ndarray::arr1;
 
 mod dataset;
@@ -55,7 +58,7 @@ enum Algorithm {
 }
 
 impl Algorithm {
-    fn create<P: Point>(&self, dataset: impl IntoIterator<Item = P>, k: usize) -> Indexes<P> {
+    fn create<P: Point>(&self, dataset: impl IntoIterator<Item = P>, query: &Query) -> Indexes<P> {
         match self {
             Self::Bruteforce => {
                 let bruteforce = dataset.into_iter().collect();
@@ -63,7 +66,11 @@ impl Algorithm {
             }
             Self::Nsw => {
                 let iter = dataset.into_iter();
-                let mut builder = NSWBuilder::new(50);
+                let mut builder = NSWBuilder::new(NSWOptions {
+                    ef_construction: query.ef_construction,
+                    connections: query.connections,
+                    max_connections: query.max_connections,
+                });
                 builder.extend(iter);
                 Indexes::NSW(builder.build())
             }
@@ -114,6 +121,18 @@ struct Query {
     #[arg(short, default_value_t = 10)]
     k: usize,
 
+    /// Beamwidth during index construction
+    #[arg(short = 'c', default_value_t = 48)]
+    ef_construction: usize,
+
+    /// Desired number of edges for each node
+    #[arg(short = 'm', default_value_t = 16)]
+    connections: usize,
+
+    /// Max number of edges for each node
+    #[arg(short = 'M', default_value_t = 32)]
+    max_connections: usize,
+
     #[arg(short, long, value_enum, default_value_t = Algorithm::Nsw)]
     algorithm: Algorithm,
 
@@ -124,11 +143,11 @@ struct Query {
 
 impl Action for Query {
     fn act(self) -> Result<()> {
-        let dataset = BufferedDataset::open(self.datafile, "hamming")?;
-        let queries = BufferedDataset::<'_, Sketch, _>::open(self.queryfile, "hamming")?;
+        let dataset = BufferedDataset::open(&self.datafile, "hamming")?;
+        let queries = BufferedDataset::<'_, Sketch, _>::open(&self.queryfile, "hamming")?;
 
         let buildtime = SystemTime::now();
-        let index = self.algorithm.create(dataset, self.k);
+        let index = self.algorithm.create(dataset, &self);
         let buildtime_sec = buildtime.elapsed().unwrap_or(Duration::ZERO).as_secs();
 
         let querytime = SystemTime::now();
@@ -195,8 +214,8 @@ struct GroundTruth {
 
 impl Action for GroundTruth {
     fn act(self) -> Result<()> {
-        let dataset = BufferedDataset::open(self.datafile, "hamming")?;
-        let queries = BufferedDataset::<'_, Sketch, _>::open(self.queryfile, "hamming")?;
+        let dataset = BufferedDataset::open(&self.datafile, "hamming")?;
+        let queries = BufferedDataset::<'_, Sketch, _>::open(&self.queryfile, "hamming")?;
 
         let index = Bruteforce::from_iter(dataset);
 
