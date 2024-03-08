@@ -11,6 +11,7 @@ use hnsw_itu::{
     Bruteforce, Index, IndexBuilder, Point, NSW,
 };
 use ndarray::arr1;
+use tracing::{info, instrument};
 
 mod dataset;
 mod sketch;
@@ -19,6 +20,7 @@ use crate::dataset::*;
 use crate::sketch::*;
 
 fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
     cli.command.exec()?;
     Ok(())
@@ -103,7 +105,7 @@ impl<P: Point> Index<P> for Indexes<P> {
 }
 
 /// Query dataset and generate result file
-#[derive(Args)]
+#[derive(Args, Debug)]
 struct Query {
     /// HDF5 file with binary sketches
     #[arg(short, long)]
@@ -142,18 +144,37 @@ struct Query {
 }
 
 impl Action for Query {
+    #[instrument(skip_all)]
     fn act(self) -> Result<()> {
+        info!(datafile = ?self.datafile, queryfile = ?self.queryfile);
         let dataset = BufferedDataset::open(&self.datafile, "hamming")?;
         let queries = BufferedDataset::<'_, Sketch, _>::open(&self.queryfile, "hamming")?;
+        let dataset_size: u32 = dataset.size().try_into().unwrap();
+        let queries_size: u32 = queries.size().try_into().unwrap();
 
-        let buildtime = SystemTime::now();
+        let buildtime_start = SystemTime::now();
+        info!("Start building index");
         let index = self.algorithm.create(dataset, &self);
-        let buildtime_sec = buildtime.elapsed().unwrap_or(Duration::ZERO).as_secs();
+        let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
+        let buildtime_sec = buildtime_total.as_secs();
+        let buildtime_per_element = buildtime_total / dataset_size;
+        info!(
+            "Total build time: {:?}, per element: {:?}",
+            buildtime_total, buildtime_per_element
+        );
 
-        let querytime = SystemTime::now();
+        let querytime_start = SystemTime::now();
+        info!(k = self.k, "Start querying");
         let results = index.knns(queries.clone(), self.k);
-        let querytime_sec = querytime.elapsed().unwrap_or(Duration::ZERO).as_secs();
+        let querytime_total = querytime_start.elapsed().unwrap_or(Duration::ZERO);
+        let querytime_sec = querytime_total.as_secs();
+        let querytime_per_element = querytime_total / queries_size;
+        info!(
+            "Total query time: {:?}, per query: {:?}",
+            querytime_total, querytime_per_element
+        );
 
+        info!(outfile = self.outfile, sort = self.sort, "Writing result");
         let knns = BufferedDataset::create(self.outfile, (queries.size(), self.k), "knns")?;
 
         for (i, mut res) in results.into_iter().enumerate() {
@@ -174,15 +195,26 @@ impl Action for Query {
             i => i.to_string(),
         };
 
-        knns.add_attr("data", &VarLenUnicode::from_str("hamming").unwrap())?;
-        knns.add_attr("size", &VarLenUnicode::from_str(size.as_str()).unwrap())?;
-        knns.add_attr(
-            "algo",
-            &VarLenUnicode::from_str(format!("{:?}", self.algorithm).as_str()).unwrap(),
-        )?;
+        let data = &VarLenUnicode::from_str("hamming").unwrap();
+        let size = &VarLenUnicode::from_str(size.as_str()).unwrap();
+        let algo = &VarLenUnicode::from_str(format!("{:?}", self.algorithm).as_str()).unwrap();
+        let params = &VarLenUnicode::from_str("params").unwrap();
+        info!(
+            ?data,
+            ?size,
+            ?algo,
+            ?buildtime_sec,
+            ?querytime_sec,
+            ?params,
+            "Writing result attributes"
+        );
+
+        knns.add_attr("data", data)?;
+        knns.add_attr("size", size)?;
+        knns.add_attr("algo", algo)?;
         knns.add_attr("buildtime", &buildtime_sec)?;
         knns.add_attr("querytime", &querytime_sec)?;
-        knns.add_attr("params", &VarLenUnicode::from_str("params").unwrap())?;
+        knns.add_attr("params", params)?;
 
         Ok(())
     }
@@ -213,14 +245,19 @@ struct GroundTruth {
 }
 
 impl Action for GroundTruth {
+    #[instrument(skip_all)]
     fn act(self) -> Result<()> {
+        info!(datafile = ?self.datafile, queryfile = ?self.queryfile);
         let dataset = BufferedDataset::open(&self.datafile, "hamming")?;
         let queries = BufferedDataset::<'_, Sketch, _>::open(&self.queryfile, "hamming")?;
 
+        info!(size = dataset.size(), "Reading dataset");
         let index = Bruteforce::from_iter(dataset);
 
+        info!(k = self.k, "Querying");
         let results = index.knns(queries.clone(), self.k);
 
+        info!(outfile = self.outfile, sort = self.sort, "Writing result");
         let file = File::create(self.outfile)?;
         let knns = BufferedDataset::with_file(&file, (queries.size(), self.k), "knns")?;
         let dists = BufferedDataset::with_file(&file, (queries.size(), self.k), "dists")?;
