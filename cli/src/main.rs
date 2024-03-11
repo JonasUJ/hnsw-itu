@@ -12,16 +12,11 @@ use hnsw_itu::{
     nsw::{NSWBuilder, NSWOptions},
     Bruteforce, Distance, Index, IndexBuilder, Point, NSW,
 };
+use hnsw_itu_cli::{BufferedDataset, Sketch};
 use nanoserde::{DeBin, SerBin};
 use ndarray::arr1;
 use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::{filter, layer::SubscriberExt, reload, util::SubscriberInitExt};
-
-mod dataset;
-mod sketch;
-
-use crate::dataset::*;
-use crate::sketch::*;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -351,7 +346,7 @@ struct Query {
     datafile: PathBuf,
 
     /// HDF5 file with queries into the dataset
-    #[arg(short, long)]
+    #[arg(short = 'Q', long)]
     queryfile: PathBuf,
 
     /// Location of resulting file
@@ -447,7 +442,7 @@ struct CreateIndex {
     max_connections: usize,
 
     /// At what row in the datafile to start indexing
-    #[arg(short, long)]
+    #[arg(short = 'b', long)]
     start: Option<usize>,
 
     /// How many rows from the datafile to index
@@ -486,7 +481,7 @@ struct QueryIndex {
     indexfile: PathBuf,
 
     /// HDF5 file with queries into the dataset
-    #[arg(short, long)]
+    #[arg(short = 'Q', long)]
     queryfile: PathBuf,
 
     /// Location of resulting file
@@ -530,7 +525,7 @@ struct GroundTruth {
     datafile: PathBuf,
 
     /// HDF5 file with queries into the dataset
-    #[arg(short, long)]
+    #[arg(short = 'Q', long)]
     queryfile: PathBuf,
 
     /// Location of resulting file
@@ -538,7 +533,7 @@ struct GroundTruth {
     outfile: String,
 
     /// At what row in the datafile to start indexing
-    #[arg(short, long)]
+    #[arg(short = 'b', long)]
     start: Option<usize>,
 
     /// How many rows from the datafile to index
