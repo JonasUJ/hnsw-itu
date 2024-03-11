@@ -15,11 +15,11 @@ pub trait IndexBuilder<P> {
 
 pub trait Index<P> {
     fn size(&self) -> usize;
-    fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
+    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>>
     where
         P: Point;
 
-    fn knns<I>(&self, queries: I, ef: usize) -> Vec<Vec<Distance<'_, P>>>
+    fn knns<I>(&self, queries: I, k: usize, ef: usize) -> Vec<Vec<Distance<'_, P>>>
     where
         Self: Sync,
         I: IntoIterator<Item = P>,
@@ -29,7 +29,7 @@ pub trait Index<P> {
             .into_iter()
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|q| self.search(q, ef))
+            .map(|q| self.search(q, k, ef))
             .collect()
     }
 }

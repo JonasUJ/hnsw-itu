@@ -95,7 +95,7 @@ fn insert<P: Point>(
 fn search<'a, P: Point>(
     graph: &'a impl Graph<P>,
     query: &P,
-    k: usize,
+    ef: usize,
     ep: Idx,
 ) -> Vec<Distance<'a, P>> {
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
@@ -124,20 +124,20 @@ fn search<'a, P: Point>(
             let point = graph.get(*e).unwrap();
             let e_dist = Distance::new(point.distance(query), *e, point);
 
-            if e_dist.distance() >= f.distance() && w.len() >= k {
+            if e_dist.distance() >= f.distance() && w.len() >= ef {
                 continue;
             }
 
             cands.push(Reverse(e_dist.clone()));
             w.push(e_dist);
 
-            if w.len() > k {
+            if w.len() > ef {
                 w.pop();
             }
         }
     }
 
-    w.into_iter().take(k).collect()
+    w.into_iter().take(ef).collect()
 }
 
 pub struct NSWOptions {
@@ -224,9 +224,9 @@ impl<P: Point> Index<P> for NSW<P> {
         self.graph.size()
     }
 
-    fn search<'a>(&'a self, query: &P, k: usize) -> Vec<Distance<'a, P>> {
+    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>> {
         self.ep.map_or_else(Vec::default, |ep| {
-            search(&self.graph, query, 100, ep).into_iter().min_k(k)
+            search(&self.graph, query, ef, ep).into_iter().min_k(k)
         })
     }
 }
@@ -263,7 +263,7 @@ mod tests {
 
         let nsw = builder.build();
         let knns = nsw
-            .search(&5, k)
+            .search(&5, k, k)
             .into_iter()
             .map(|dist| dist.point())
             .copied();

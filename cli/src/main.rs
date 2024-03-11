@@ -77,6 +77,7 @@ fn query_index<'a>(
     index: &'a Indexes<Sketch>,
     attrs: &mut ResultAttrs,
     k: usize,
+    ef: usize,
 ) -> Result<Vec<Vec<Distance<'a, Sketch>>>> {
     info!(?path, "Opening");
     let queries = BufferedDataset::open(path, "hamming")?;
@@ -84,7 +85,7 @@ fn query_index<'a>(
 
     let querytime_start = SystemTime::now();
     info!(k, "Start querying");
-    let results = index.knns(queries, k);
+    let results = index.knns(queries, k, ef);
     let querytime_total = querytime_start.elapsed().unwrap_or_default();
     let querytime_per_element = querytime_total / queries_size;
     info!(
@@ -293,13 +294,13 @@ impl<P: Point> Index<P> for Indexes<P> {
         }
     }
 
-    fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
+    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>>
     where
         P: Point,
     {
         match self {
-            Self::Bruteforce(bruteforce) => bruteforce.search(query, ef),
-            Self::NSW(nsw) => nsw.search(query, ef),
+            Self::Bruteforce(bruteforce) => bruteforce.search(query, k, ef),
+            Self::NSW(nsw) => nsw.search(query, k, ef),
         }
     }
 }
@@ -333,16 +334,20 @@ struct Query {
     #[arg(short, default_value_t = 10)]
     k: usize,
 
+    /// Beamwidth during search
+    #[arg(short = 'e', default_value_t = 48)]
+    ef: usize,
+
     /// Beamwidth during index construction
     #[arg(short = 'c', default_value_t = 48)]
     ef_construction: usize,
 
     /// Desired number of edges for each node
-    #[arg(short = 'm', default_value_t = 16)]
+    #[arg(short = 'm', default_value_t = 48)]
     connections: usize,
 
     /// Max number of edges for each node
-    #[arg(short = 'M', default_value_t = 32)]
+    #[arg(short = 'M', default_value_t = 96)]
     max_connections: usize,
 
     /// What algorithm to use for index construction
@@ -377,6 +382,7 @@ impl Action for Query {
             &index_file.index,
             &mut index_file.attrs,
             self.k,
+            self.ef,
         )?;
 
         write_result(&self.outfile, results, self.k, self.sort, index_file.attrs)?;
@@ -401,11 +407,11 @@ struct CreateIndex {
     ef_construction: usize,
 
     /// Desired number of edges for each node
-    #[arg(short = 'm', default_value_t = 16)]
+    #[arg(short = 'm', default_value_t = 48)]
     connections: usize,
 
     /// Max number of edges for each node
-    #[arg(short = 'M', default_value_t = 32)]
+    #[arg(short = 'M', default_value_t = 96)]
     max_connections: usize,
 
     /// At what row in the datafile to start indexing
@@ -458,6 +464,10 @@ struct QueryIndex {
     /// Number of nearest neighbors to find
     #[arg(short, default_value_t = 10)]
     k: usize,
+    
+    /// Beamwidth during search
+    #[arg(short = 'e', default_value_t = 48)]
+    ef: usize,
 
     /// Put nearest neighbors in sorted (ascending) order
     #[arg(short, long, default_value_t = false)]
@@ -472,6 +482,7 @@ impl Action for QueryIndex {
             &index_file.index,
             &mut index_file.attrs,
             self.k,
+            self.ef,
         )?;
         write_result(&self.outfile, results, self.k, self.sort, index_file.attrs)?;
 
@@ -524,6 +535,7 @@ impl Action for GroundTruth {
             &self.queryfile,
             &index_file.index,
             &mut index_file.attrs,
+            self.k,
             self.k,
         )?;
 
