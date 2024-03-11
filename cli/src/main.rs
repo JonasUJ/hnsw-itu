@@ -28,10 +28,13 @@ fn main() -> Result<()> {
         clap_verbosity_flag::LevelFilter::Debug => filter::LevelFilter::DEBUG,
         clap_verbosity_flag::LevelFilter::Trace => filter::LevelFilter::TRACE,
     };
+    let timer = time::format_description::parse("[hour]:[minute]:[second]").unwrap();
+    let time_offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let timer = tracing_subscriber::fmt::time::OffsetTime::new(time_offset, timer);
     let (filter, _reload_handle) = reload::Layer::new(level);
     tracing_subscriber::registry()
         .with(filter)
-        .with(tracing_subscriber::fmt::Layer::default())
+        .with(tracing_subscriber::fmt::layer().with_timer(timer))
         .init();
     debug!(?level, "Logging");
     cli.command.exec()?;
