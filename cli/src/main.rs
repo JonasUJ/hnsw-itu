@@ -1,15 +1,18 @@
 use std::{
-    path::PathBuf,
+    io::Write,
+    path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
 };
 
+use anyhow::Result;
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
-use hdf5::{types::VarLenUnicode, File, Result};
+use hdf5::{types::VarLenUnicode, File};
 use hnsw_itu::{
     nsw::{NSWBuilder, NSWOptions},
-    Bruteforce, Index, IndexBuilder, Point, NSW,
+    Bruteforce, Distance, Index, IndexBuilder, Point, NSW,
 };
+use nanoserde::{DeBin, SerBin};
 use ndarray::arr1;
 use tracing::{info, instrument};
 
@@ -24,6 +27,185 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     cli.command.exec()?;
     Ok(())
+}
+
+#[instrument(skip_all)]
+fn build_index(
+    path: &PathBuf,
+    algorithm: Algorithm,
+    options: impl Into<AlgorithmOptions>,
+    start: Option<usize>,
+    len: Option<usize>,
+) -> Result<IndexFile<Sketch>> {
+    info!(?path, "Opening");
+    let dataset = BufferedDataset::<'_, Sketch, _>::open(path, "hamming")?;
+    let dataset_size: u32 = dataset.size().try_into().unwrap();
+
+    let format_size = start.is_none() && len.is_none();
+    let dataset_vec = dataset
+        .clone()
+        .into_iter()
+        .skip(start.unwrap_or_default())
+        .take(len.unwrap_or(dataset.size()))
+        .collect::<Vec<_>>();
+    let size = dataset_vec.len();
+
+    let buildtime_start = SystemTime::now();
+    info!(size, "Building index");
+    let index = algorithm.create(dataset_vec, options);
+    let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
+    let buildtime_per_element = buildtime_total / dataset_size;
+    info!(
+        "Total build time: {:?}, per element: {:?}",
+        buildtime_total, buildtime_per_element
+    );
+
+    let attrs = ResultAttrs {
+        format_size,
+        size,
+        algo: algorithm,
+        buildtime: buildtime_total.as_secs(),
+        ..Default::default()
+    };
+
+    Ok(IndexFile { attrs, index })
+}
+
+#[instrument(skip_all)]
+fn query_index<'a>(
+    path: &PathBuf,
+    index: &'a Indexes<Sketch>,
+    attrs: &mut ResultAttrs,
+    k: usize,
+) -> Result<Vec<Vec<Distance<'a, Sketch>>>> {
+    info!(?path, "Opening");
+    let queries = BufferedDataset::open(path, "hamming")?;
+    let queries_size: u32 = queries.size().try_into().unwrap();
+
+    let querytime_start = SystemTime::now();
+    info!(k, "Start querying");
+    let results = index.knns(queries, k);
+    let querytime_total = querytime_start.elapsed().unwrap_or_default();
+    let querytime_per_element = querytime_total / queries_size;
+    info!(
+        "Total query time: {:?}, per query: {:?}",
+        querytime_total, querytime_per_element
+    );
+
+    attrs.querytime = querytime_total.as_secs();
+
+    Ok(results)
+}
+
+#[instrument(skip_all)]
+fn read_index(path: &impl AsRef<Path>) -> Result<IndexFile<Sketch>> {
+    info!(path = path.as_ref().to_str(), "Reading index");
+    let serialized = std::fs::read(path)?;
+    let index_file: IndexFile<Sketch> = DeBin::deserialize_bin(&serialized)?;
+    info!(
+        size = index_file.index.size(),
+        bytes = serialized.len(),
+        "Read index"
+    );
+
+    Ok(index_file)
+}
+
+#[instrument(skip_all)]
+fn write_index<P: SerBin>(path: &impl AsRef<Path>, index_file: &IndexFile<P>) -> Result<()> {
+    info!(path = path.as_ref().to_str(), "Serializing");
+    let serialized = SerBin::serialize_bin(index_file);
+    let mut file = std::fs::File::create(path)?;
+    info!(bytes = serialized.len(), "Writing");
+    file.write_all(&serialized)?;
+
+    Ok(())
+}
+
+fn format_size_string(size: usize) -> String {
+    match size {
+        90_000..=110_000 => String::from("100K"),
+        270_000..=330_000 => String::from("300K"),
+        9_000_000..=11_000_000 => String::from("10M"),
+        27_000_000..=33_000_000 => String::from("30M"),
+        90_000_000..=110_000_000 => String::from("100M"),
+        i => i.to_string(),
+    }
+}
+
+#[instrument(skip_all)]
+fn write_result(
+    path: &impl AsRef<Path>,
+    results: Vec<Vec<Distance<'_, Sketch>>>,
+    k: usize,
+    sort: bool,
+    attrs: ResultAttrs,
+) -> Result<()> {
+    info!(path = path.as_ref().to_str(), ?sort, "Writing result");
+    let knns = BufferedDataset::create(path, (results.len(), k), "knns")?;
+
+    for (i, mut res) in results.into_iter().enumerate() {
+        if sort {
+            res.sort();
+        }
+
+        let v = arr1(&res.iter().map(|d| d.key() as u64 + 1).collect::<Vec<u64>>());
+        knns.write_row(v, i)?;
+    }
+
+    let size = if attrs.format_size {
+        format_size_string(attrs.size)
+    } else {
+        attrs.size.to_string()
+    };
+
+    let data = &VarLenUnicode::from_str(attrs.data.as_str())?;
+    let size = &VarLenUnicode::from_str(size.as_str())?;
+    let algo = &VarLenUnicode::from_str(format!("{:?}", attrs.algo).as_str())?;
+    let params = &VarLenUnicode::from_str(attrs.params.as_str())?;
+    info!(
+        ?data,
+        ?size,
+        ?algo,
+        buildtime = ?attrs.buildtime,
+        querytime = ?attrs.querytime,
+        ?params,
+        "Writing result attributes"
+    );
+
+    knns.add_attr("data", data)?;
+    knns.add_attr("size", size)?;
+    knns.add_attr("algo", algo)?;
+    knns.add_attr("buildtime", &attrs.buildtime)?;
+    knns.add_attr("querytime", &attrs.querytime)?;
+    knns.add_attr("params", params)?;
+
+    Ok(())
+}
+
+#[derive(SerBin, DeBin, Clone)]
+struct ResultAttrs {
+    format_size: bool,
+    data: String,
+    size: usize,
+    algo: Algorithm,
+    buildtime: u64,
+    querytime: u64,
+    params: String,
+}
+
+impl Default for ResultAttrs {
+    fn default() -> Self {
+        Self {
+            format_size: true,
+            data: String::from("hamming"),
+            size: Default::default(),
+            algo: Default::default(),
+            buildtime: Default::default(),
+            querytime: Default::default(),
+            params: String::from(""),
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -41,26 +223,43 @@ trait Action {
 #[derive(Subcommand)]
 enum Commands {
     Query(Query),
+    Index(CreateIndex),
+    QueryIndex(QueryIndex),
     GroundTruth(GroundTruth),
 }
 
 impl Commands {
     fn exec(self) -> Result<()> {
         match self {
-            Self::GroundTruth(a) => a.act(),
             Self::Query(a) => a.act(),
+            Self::Index(a) => a.act(),
+            Self::QueryIndex(a) => a.act(),
+            Self::GroundTruth(a) => a.act(),
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[derive(Default)]
+struct AlgorithmOptions {
+    ef_construction: usize,
+    connections: usize,
+    max_connections: usize,
+}
+
+#[derive(SerBin, DeBin, Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum Algorithm {
+    #[default]
     Bruteforce,
     Nsw,
 }
 
 impl Algorithm {
-    fn create<P: Point>(&self, dataset: impl IntoIterator<Item = P>, query: &Query) -> Indexes<P> {
+    fn create<P: Point>(
+        &self,
+        dataset: impl IntoIterator<Item = P>,
+        options: impl Into<AlgorithmOptions>,
+    ) -> Indexes<P> {
+        let options = options.into();
         match self {
             Self::Bruteforce => {
                 let bruteforce = dataset.into_iter().collect();
@@ -69,9 +268,9 @@ impl Algorithm {
             Self::Nsw => {
                 let iter = dataset.into_iter();
                 let mut builder = NSWBuilder::new(NSWOptions {
-                    ef_construction: query.ef_construction,
-                    connections: query.connections,
-                    max_connections: query.max_connections,
+                    ef_construction: options.ef_construction,
+                    connections: options.connections,
+                    max_connections: options.max_connections,
                 });
                 builder.extend(iter);
                 Indexes::NSW(builder.build())
@@ -80,6 +279,7 @@ impl Algorithm {
     }
 }
 
+#[derive(SerBin, DeBin)]
 pub enum Indexes<P> {
     Bruteforce(Bruteforce<P>),
     NSW(NSW<P>),
@@ -93,7 +293,7 @@ impl<P: Point> Index<P> for Indexes<P> {
         }
     }
 
-    fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<hnsw_itu::Distance<'a, P>>
+    fn search<'a>(&'a self, query: &P, ef: usize) -> Vec<Distance<'a, P>>
     where
         P: Point,
     {
@@ -104,7 +304,13 @@ impl<P: Point> Index<P> for Indexes<P> {
     }
 }
 
-/// Query dataset and generate result file
+#[derive(SerBin, DeBin)]
+struct IndexFile<P> {
+    attrs: ResultAttrs,
+    index: Indexes<P>,
+}
+
+/// Create index from dataset, query it and generate result file
 #[derive(Args, Debug)]
 struct Query {
     /// HDF5 file with binary sketches
@@ -118,6 +324,10 @@ struct Query {
     /// Location of resulting file
     #[arg(short, long, default_value_t = String::from("result.h5"))]
     outfile: String,
+
+    /// If specified, write index file to this location
+    #[arg(short, long)]
+    indexfile: Option<PathBuf>,
 
     /// Number of nearest neighbors to find
     #[arg(short, default_value_t = 10)]
@@ -135,6 +345,7 @@ struct Query {
     #[arg(short = 'M', default_value_t = 32)]
     max_connections: usize,
 
+    /// What algorithm to use for index construction
     #[arg(short, long, value_enum, default_value_t = Algorithm::Nsw)]
     algorithm: Algorithm,
 
@@ -143,78 +354,127 @@ struct Query {
     sort: bool,
 }
 
+impl From<&Query> for AlgorithmOptions {
+    fn from(value: &Query) -> Self {
+        Self {
+            connections: value.connections,
+            ef_construction: value.ef_construction,
+            max_connections: value.max_connections,
+        }
+    }
+}
+
 impl Action for Query {
     #[instrument(skip_all)]
     fn act(self) -> Result<()> {
-        info!(datafile = ?self.datafile, queryfile = ?self.queryfile);
-        let dataset = BufferedDataset::open(&self.datafile, "hamming")?;
-        let queries = BufferedDataset::<'_, Sketch, _>::open(&self.queryfile, "hamming")?;
-        let dataset_size: u32 = dataset.size().try_into().unwrap();
-        let queries_size: u32 = queries.size().try_into().unwrap();
+        let mut index_file = build_index(&self.datafile, self.algorithm, &self, None, None)?;
 
-        let buildtime_start = SystemTime::now();
-        info!("Start building index");
-        let index = self.algorithm.create(dataset, &self);
-        let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
-        let buildtime_sec = buildtime_total.as_secs();
-        let buildtime_per_element = buildtime_total / dataset_size;
-        info!(
-            "Total build time: {:?}, per element: {:?}",
-            buildtime_total, buildtime_per_element
-        );
-
-        let querytime_start = SystemTime::now();
-        info!(k = self.k, "Start querying");
-        let results = index.knns(queries.clone(), self.k);
-        let querytime_total = querytime_start.elapsed().unwrap_or(Duration::ZERO);
-        let querytime_sec = querytime_total.as_secs();
-        let querytime_per_element = querytime_total / queries_size;
-        info!(
-            "Total query time: {:?}, per query: {:?}",
-            querytime_total, querytime_per_element
-        );
-
-        info!(outfile = self.outfile, sort = self.sort, "Writing result");
-        let knns = BufferedDataset::create(self.outfile, (queries.size(), self.k), "knns")?;
-
-        for (i, mut res) in results.into_iter().enumerate() {
-            if self.sort {
-                res.sort();
-            }
-
-            let v = arr1(&res.iter().map(|d| d.key() as u64 + 1).collect::<Vec<u64>>());
-            knns.write_row(v, i)?;
+        if let Some(path) = self.indexfile {
+            write_index(&path, &index_file)?;
         }
 
-        let size = match index.size() {
-            90_000..=110_000 => String::from("100K"),
-            270_000..=330_000 => String::from("300K"),
-            9_000_000..=11_000_000 => String::from("10M"),
-            27_000_000..=33_000_000 => String::from("30M"),
-            90_000_000..=110_000_000 => String::from("100M"),
-            i => i.to_string(),
-        };
+        let results = query_index(
+            &self.queryfile,
+            &index_file.index,
+            &mut index_file.attrs,
+            self.k,
+        )?;
 
-        let data = &VarLenUnicode::from_str("hamming").unwrap();
-        let size = &VarLenUnicode::from_str(size.as_str()).unwrap();
-        let algo = &VarLenUnicode::from_str(format!("{:?}", self.algorithm).as_str()).unwrap();
-        let params = &VarLenUnicode::from_str("params").unwrap();
-        info!(
-            ?data,
-            ?size,
-            ?algo,
-            ?buildtime_sec,
-            ?querytime_sec,
-            ?params,
-            "Writing result attributes"
-        );
+        write_result(&self.outfile, results, self.k, self.sort, index_file.attrs)?;
 
-        knns.add_attr("data", data)?;
-        knns.add_attr("size", size)?;
-        knns.add_attr("algo", algo)?;
-        knns.add_attr("buildtime", &buildtime_sec)?;
-        knns.add_attr("querytime", &querytime_sec)?;
-        knns.add_attr("params", params)?;
+        Ok(())
+    }
+}
+
+/// Index dataset and generate result file used for queries
+#[derive(Args, Debug)]
+struct CreateIndex {
+    /// HDF5 file with binary sketches
+    #[arg(short, long)]
+    datafile: PathBuf,
+
+    /// Location of resulting file
+    #[arg(short, long, default_value_t = String::from("index.idx"))]
+    outfile: String,
+
+    /// Beamwidth during index construction
+    #[arg(short = 'c', default_value_t = 48)]
+    ef_construction: usize,
+
+    /// Desired number of edges for each node
+    #[arg(short = 'm', default_value_t = 16)]
+    connections: usize,
+
+    /// Max number of edges for each node
+    #[arg(short = 'M', default_value_t = 32)]
+    max_connections: usize,
+
+    /// At what row in the datafile to start indexing
+    #[arg(short, long)]
+    start: Option<usize>,
+
+    /// How many rows from the datafile to index
+    #[arg(short, long)]
+    len: Option<usize>,
+
+    /// What algorithm to use for index construction
+    #[arg(short, long, value_enum, default_value_t = Algorithm::Nsw)]
+    algorithm: Algorithm,
+}
+
+impl From<&CreateIndex> for AlgorithmOptions {
+    fn from(value: &CreateIndex) -> Self {
+        Self {
+            connections: value.connections,
+            ef_construction: value.ef_construction,
+            max_connections: value.max_connections,
+        }
+    }
+}
+
+impl Action for CreateIndex {
+    fn act(self) -> Result<()> {
+        let index = build_index(&self.datafile, self.algorithm, &self, self.start, self.len)?;
+        write_index(&self.outfile, &index)?;
+
+        Ok(())
+    }
+}
+
+/// Query an index file generated by the `index` command and generate result file
+#[derive(Args, Debug)]
+struct QueryIndex {
+    /// Index file to query
+    #[arg(short, long)]
+    indexfile: PathBuf,
+
+    /// HDF5 file with queries into the dataset
+    #[arg(short, long)]
+    queryfile: PathBuf,
+
+    /// Location of resulting file
+    #[arg(short, long, default_value_t = String::from("result.h5"))]
+    outfile: String,
+
+    /// Number of nearest neighbors to find
+    #[arg(short, default_value_t = 10)]
+    k: usize,
+
+    /// Put nearest neighbors in sorted (ascending) order
+    #[arg(short, long, default_value_t = false)]
+    sort: bool,
+}
+
+impl Action for QueryIndex {
+    fn act(self) -> Result<()> {
+        let mut index_file = read_index(&self.indexfile)?;
+        let results = query_index(
+            &self.queryfile,
+            &index_file.index,
+            &mut index_file.attrs,
+            self.k,
+        )?;
+        write_result(&self.outfile, results, self.k, self.sort, index_file.attrs)?;
 
         Ok(())
     }
@@ -235,6 +495,14 @@ struct GroundTruth {
     #[arg(short, long, default_value_t = String::from("groundtruth.h5"))]
     outfile: String,
 
+    /// At what row in the datafile to start indexing
+    #[arg(short, long)]
+    start: Option<usize>,
+
+    /// How many rows from the datafile to index
+    #[arg(short, long)]
+    len: Option<usize>,
+
     /// Number of nearest neighbors to find
     #[arg(short, default_value_t = 100)]
     k: usize,
@@ -247,20 +515,24 @@ struct GroundTruth {
 impl Action for GroundTruth {
     #[instrument(skip_all)]
     fn act(self) -> Result<()> {
-        info!(datafile = ?self.datafile, queryfile = ?self.queryfile);
-        let dataset = BufferedDataset::open(&self.datafile, "hamming")?;
-        let queries = BufferedDataset::<'_, Sketch, _>::open(&self.queryfile, "hamming")?;
-
-        info!(size = dataset.size(), "Reading dataset");
-        let index = Bruteforce::from_iter(dataset);
-
-        info!(k = self.k, "Querying");
-        let results = index.knns(queries.clone(), self.k);
+        let mut index_file = build_index(
+            &self.datafile,
+            Algorithm::Bruteforce,
+            AlgorithmOptions::default(),
+            self.start,
+            self.len,
+        )?;
+        let results = query_index(
+            &self.queryfile,
+            &index_file.index,
+            &mut index_file.attrs,
+            self.k,
+        )?;
 
         info!(outfile = self.outfile, sort = self.sort, "Writing result");
         let file = File::create(self.outfile)?;
-        let knns = BufferedDataset::with_file(&file, (queries.size(), self.k), "knns")?;
-        let dists = BufferedDataset::with_file(&file, (queries.size(), self.k), "dists")?;
+        let knns = BufferedDataset::with_file(&file, (results.len(), self.k), "knns")?;
+        let dists = BufferedDataset::with_file(&file, (results.len(), self.k), "dists")?;
 
         for (i, mut res) in results.into_iter().enumerate() {
             if self.sort {

@@ -1,7 +1,10 @@
+use nanoserde::{DeBin, SerBin};
+
 use crate::{Distance, IndexBuilder, MinK, Point};
 
 use super::Index;
 
+#[derive(SerBin, DeBin)]
 pub struct Bruteforce<P> {
     points: Vec<P>,
 }

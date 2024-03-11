@@ -9,9 +9,11 @@ name = "hnsw-itu"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.80"
 clap = { version = "4.5.0", features = ["derive"] }
 hdf5 = "0.8.1"
 hnsw-itu = { version = "0.1.0", path = ".." }
+nanoserde = "0.1.37"
 ndarray = "0.15.6"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"

@@ -28,3 +28,6 @@ data/
 
 # VS Code
 .vscode
+
+# Indexes
+*.idx

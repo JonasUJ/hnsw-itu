@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 
+use nanoserde::{DeBin, SerBin};
+
 use crate::{Graph, Idx};
 
-#[derive(Debug)]
+#[derive(SerBin, DeBin, Debug)]
 pub struct SimpleGraph<T> {
     nodes: Vec<T>,
     adj_lists: Vec<HashSet<Idx>>,

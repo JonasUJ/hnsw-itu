@@ -1,3 +1,5 @@
+use nanoserde::{DeBin, SerBin};
+
 use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
 use std::{
     cmp::Reverse,
@@ -211,7 +213,7 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
     }
 }
 
-#[derive(Debug)]
+#[derive(SerBin, DeBin, Debug)]
 pub struct NSW<P> {
     graph: SimpleGraph<P>,
     ep: Option<Idx>,
