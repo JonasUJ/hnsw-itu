@@ -365,7 +365,6 @@ impl From<&Query> for AlgorithmOptions {
 }
 
 impl Action for Query {
-    #[instrument(skip_all)]
     fn act(self) -> Result<()> {
         let mut index_file = build_index(&self.datafile, self.algorithm, &self, None, None)?;
 
@@ -513,7 +512,6 @@ struct GroundTruth {
 }
 
 impl Action for GroundTruth {
-    #[instrument(skip_all)]
     fn act(self) -> Result<()> {
         let mut index_file = build_index(
             &self.datafile,
