@@ -51,21 +51,30 @@ fn build_index(
     let dataset_size: u32 = dataset.size().try_into().unwrap();
 
     let format_size = start.is_none() && len.is_none();
-    let dataset_vec = dataset
-        .clone()
-        .into_iter()
-        .skip(start.unwrap_or_default())
-        .take(len.unwrap_or(dataset.size()))
-        .collect::<Vec<_>>();
-    let size = dataset_vec.len();
+    let skip = start.unwrap_or_default();
+    let take = len.unwrap_or(dataset.size());
+    let size = take.min(dataset.size() - skip);
+
+    if take != size {
+        warn!(
+            size,
+            len = take,
+            "Dataset range will be smaller than specified `len`"
+        );
+    }
 
     let mut count = 0;
-    let dataset_iter = dataset_vec.into_iter().inspect(|_| {
-        count += 1;
-        if count % 100000 == 0 {
-            debug!(count, "{}%", count * 100 / size);
-        }
-    });
+    let dataset_iter = dataset
+        .clone()
+        .into_iter()
+        .skip(skip)
+        .take(take)
+        .inspect(|_| {
+            count += 1;
+            if count % 100000 == 0 {
+                debug!(count, "{}%", count * 100 / size);
+            }
+        });
 
     let buildtime_start = SystemTime::now();
     info!(size, ?algorithm, "Building index");
