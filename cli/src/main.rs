@@ -14,7 +14,8 @@ use hnsw_itu::{
 };
 use nanoserde::{DeBin, SerBin};
 use ndarray::arr1;
-use tracing::{info, instrument};
+use tracing::{debug, error, info, instrument, warn};
+use tracing_subscriber::{filter, layer::SubscriberExt, reload, util::SubscriberInitExt};
 
 mod dataset;
 mod sketch;
@@ -23,8 +24,21 @@ use crate::dataset::*;
 use crate::sketch::*;
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
+    let level = match cli.verbose.log_level_filter() {
+        clap_verbosity_flag::LevelFilter::Off => filter::LevelFilter::OFF,
+        clap_verbosity_flag::LevelFilter::Error => filter::LevelFilter::ERROR,
+        clap_verbosity_flag::LevelFilter::Warn => filter::LevelFilter::WARN,
+        clap_verbosity_flag::LevelFilter::Info => filter::LevelFilter::INFO,
+        clap_verbosity_flag::LevelFilter::Debug => filter::LevelFilter::DEBUG,
+        clap_verbosity_flag::LevelFilter::Trace => filter::LevelFilter::TRACE,
+    };
+    let (filter, _reload_handle) = reload::Layer::new(level);
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::Layer::default())
+        .init();
+    debug!(?level, "Logging");
     cli.command.exec()?;
     Ok(())
 }
@@ -50,9 +64,17 @@ fn build_index(
         .collect::<Vec<_>>();
     let size = dataset_vec.len();
 
+    let mut count = 0;
+    let dataset_iter = dataset_vec.into_iter().inspect(|_| {
+        count += 1;
+        if count % 100000 == 0 {
+            debug!(count, "{}%", count * 100 / size);
+        }
+    });
+
     let buildtime_start = SystemTime::now();
-    info!(size, "Building index");
-    let index = algorithm.create(dataset_vec, options);
+    info!(size, ?algorithm, "Building index");
+    let index = algorithm.create(dataset_iter, options);
     let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
     let buildtime_per_element = buildtime_total / dataset_size;
     info!(
@@ -79,12 +101,19 @@ fn query_index<'a>(
     k: usize,
     ef: usize,
 ) -> Result<Vec<Vec<Distance<'a, Sketch>>>> {
+    if k > ef {
+        error!(
+            k,
+            ef, "`k` is greater than `ef`, this can have adverse effects"
+        );
+    }
+
     info!(?path, "Opening");
     let queries = BufferedDataset::open(path, "hamming")?;
     let queries_size: u32 = queries.size().try_into().unwrap();
 
     let querytime_start = SystemTime::now();
-    info!(k, "Start querying");
+    info!(k, ef, "Start querying");
     let results = index.knns(queries, k, ef);
     let querytime_total = querytime_start.elapsed().unwrap_or_default();
     let querytime_per_element = querytime_total / queries_size;
@@ -213,6 +242,9 @@ impl Default for ResultAttrs {
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
+    #[command(flatten)]
+    verbose: clap_verbosity_flag::Verbosity,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -464,7 +496,7 @@ struct QueryIndex {
     /// Number of nearest neighbors to find
     #[arg(short, default_value_t = 10)]
     k: usize,
-    
+
     /// Beamwidth during search
     #[arg(short = 'e', default_value_t = 48)]
     ef: usize,

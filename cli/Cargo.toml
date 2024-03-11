@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.80"
 clap = { version = "4.5.0", features = ["derive"] }
+clap-verbosity-flag = "2.2.0"
 hdf5 = "0.8.1"
 hnsw-itu = { version = "0.1.0", path = ".." }
 nanoserde = "0.1.37"
