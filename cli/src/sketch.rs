@@ -4,7 +4,7 @@ use ndarray::{arr1, Array1};
 
 #[derive(SerBin, DeBin, Clone, Debug)]
 pub struct Sketch {
-    data: [u64; 16],
+    pub data: [u64; 16],
 }
 
 impl Sketch {
@@ -14,6 +14,7 @@ impl Sketch {
 }
 
 impl Point for Sketch {
+    #[inline(always)]
     fn distance(&self, other: &Self) -> usize {
         self.data
             .iter()
