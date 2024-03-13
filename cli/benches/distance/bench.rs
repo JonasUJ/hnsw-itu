@@ -2,6 +2,7 @@
 use core::simd::*;
 use std::iter;
 use std::ops::{Shr, BitAnd};
+use std::simd::num::SimdUint;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
@@ -33,6 +34,7 @@ fn cur_distance(a: Sketch, b: Sketch) -> usize {
     a.distance(&b)
 }
 
+#[inline(always)]
 fn avx_count(v: u64x16) -> u64 {
     let _lookup = [
         1u64,           // 0, 1
@@ -59,12 +61,10 @@ fn avx_count(v: u64x16) -> u64 {
     let popcnt1 = u64x16::interleave(lookup, lo).0;
     let popcnt2 = u64x16::interleave(lookup, hi).0;
     let total: u64x16 = popcnt1 + popcnt2;
-    total
-        .to_array()
-        .iter()
-        .fold(0, |acc, x| acc + x.abs_diff(0u64))
+    total.reduce_sum()
 }
 
+#[inline(always)]
 fn avx_distance(a: Sketch, b: Sketch) -> usize {
     let a = u64x16::from(a.data);
     let b = u64x16::from(b.data);
