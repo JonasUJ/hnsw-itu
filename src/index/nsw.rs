@@ -1,4 +1,5 @@
 use nanoserde::{DeBin, SerBin};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
 use std::{
@@ -28,7 +29,25 @@ fn select_neighbors<'a, P: Point>(
     return_list
 }
 
-fn insert2<P: Point>(
+fn search_select_neighbors<P: Point>(
+    graph: &impl Graph<P>,
+    point: &P,
+    m: usize,
+    ef: usize,
+    ep: Idx,
+) -> Vec<usize> {
+    let w = search(graph, point, ef, ep)
+        .into_iter()
+        .map(Reverse)
+        .collect::<BinaryHeap<_>>();
+
+    select_neighbors(w, m)
+        .into_iter()
+        .map(|x| x.key())
+        .collect()
+}
+
+fn insert_point<P: Point>(
     graph: &mut impl Graph<P>,
     point: P,
     m: usize,
@@ -38,10 +57,10 @@ fn insert2<P: Point>(
 ) {
     let point_idx = graph.add(point);
 
-    insert(graph, point_idx, m, m_max, ef, ep)
+    insert_idx(graph, point_idx, m, m_max, ef, ep)
 }
 
-fn insert<P: Point>(
+fn insert_idx<P: Point>(
     graph: &mut impl Graph<P>,
     point_idx: Idx,
     m: usize,
@@ -50,17 +69,17 @@ fn insert<P: Point>(
     ep: Idx,
 ) {
     let point = graph.get(point_idx).unwrap();
+    let neighbors = search_select_neighbors(graph, point, m, ef, ep);
 
-    let w = search(graph, point, ef, ep)
-        .into_iter()
-        .map(Reverse)
-        .collect::<BinaryHeap<_>>();
+    insert_neighbors(graph, point_idx, neighbors, m_max);
+}
 
-    let neighbors = select_neighbors(w, m)
-        .into_iter()
-        .map(|x| x.key())
-        .collect::<Vec<usize>>();
-
+fn insert_neighbors<P: Point>(
+    graph: &mut impl Graph<P>,
+    point_idx: Idx,
+    neighbors: Vec<usize>,
+    m_max: usize,
+) {
     for e in &neighbors {
         graph.add_edge(point_idx, *e);
     }
@@ -177,12 +196,68 @@ impl<P> NSWBuilder<P> {
     }
 }
 
+impl<P: Point + Send + Sync> NSWBuilder<P> {
+    pub fn extend_parallel<T: IntoIterator<Item = P>>(&mut self, iter: T) {
+        let mut iter = iter.into_iter();
+
+        if self.ep.is_none() {
+            if let Some(point) = iter.next() {
+                self.add(point);
+            }
+        }
+
+        // There needs to be some amount of nodes already to not generate a truly horrible graph.
+        self.extend(iter.by_ref().take(0.max(50_000 - self.graph.size())));
+
+        let chunk_size = rayon::max_num_threads();
+
+        loop {
+            let chunk = iter.by_ref().take(chunk_size).collect::<Vec<_>>();
+
+            if chunk.is_empty() {
+                break;
+            }
+
+            for (point_idx, neighbors) in chunk
+                .into_iter()
+                .map(|point| self.graph.add(point))
+                .collect::<Vec<_>>()
+                .into_par_iter()
+                .map(|point_idx| {
+                    let point = self.graph.get(point_idx).unwrap();
+
+                    let neighbors = search_select_neighbors(
+                        &self.graph,
+                        point,
+                        self.connections,
+                        self.ef_construction,
+                        self.ep.unwrap(),
+                    );
+
+                    (point_idx, neighbors)
+                })
+                .collect::<Vec<_>>()
+            {
+                insert_neighbors(&mut self.graph, point_idx, neighbors, self.max_connections);
+            }
+        }
+    }
+}
+
+impl<P: Point> Extend<P> for NSWBuilder<P> {
+    fn extend<T: IntoIterator<Item = P>>(&mut self, iter: T) {
+        for i in iter {
+            self.add(i);
+        }
+    }
+}
+
 impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
     type Index = NSW<P>;
 
     fn add(&mut self, point: P) {
         match self.ep {
-            Some(ep) => insert2(
+            Some(ep) => insert_point(
                 &mut self.graph,
                 point,
                 self.connections,
@@ -193,7 +268,7 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
             None => {
                 let ep = self.graph.add(point);
                 self.ep = Some(ep);
-                insert(
+                insert_idx(
                     &mut self.graph,
                     ep,
                     self.connections,
@@ -228,14 +303,6 @@ impl<P: Point> Index<P> for NSW<P> {
         self.ep.map_or_else(Vec::default, |ep| {
             search(&self.graph, query, ef, ep).into_iter().min_k(k)
         })
-    }
-}
-
-impl<P: Point> Extend<P> for NSWBuilder<P> {
-    fn extend<T: IntoIterator<Item = P>>(&mut self, iter: T) {
-        for i in iter {
-            self.add(i);
-        }
     }
 }
 
@@ -279,7 +346,7 @@ mod tests {
             ..NSWOptions::default()
         });
         let numbers = vec![1, 5, 6, 7, 16, 18];
-        let expected = vec![7, 16];
+        let expected = [7, 16];
 
         builder.extend(numbers.clone());
 

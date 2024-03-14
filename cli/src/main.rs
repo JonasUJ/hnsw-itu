@@ -51,7 +51,6 @@ fn build_index(
 ) -> Result<IndexFile<Sketch>> {
     info!(?path, "Opening");
     let dataset = BufferedDataset::<'_, Sketch, _>::open(path, "hamming")?;
-    let dataset_size: u32 = dataset.size().try_into().unwrap();
 
     let format_size = start.is_none() && len.is_none();
     let skip = start.unwrap_or_default();
@@ -83,7 +82,7 @@ fn build_index(
     info!(size, ?algorithm, "Building index");
     let index = algorithm.create(dataset_iter, options);
     let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
-    let buildtime_per_element = buildtime_total / dataset_size;
+    let buildtime_per_element = buildtime_total / size as u32;
     info!(
         "Total build time: {:?}, per element: {:?}",
         buildtime_total, buildtime_per_element
@@ -107,6 +106,7 @@ fn query_index<'a>(
     attrs: &mut ResultAttrs,
     k: usize,
     ef: usize,
+    single_threaded: bool,
 ) -> Result<Vec<Vec<Distance<'a, Sketch>>>> {
     if k > ef {
         error!(
@@ -121,7 +121,14 @@ fn query_index<'a>(
 
     let querytime_start = SystemTime::now();
     info!(k, ef, "Start querying");
-    let results = index.knns(queries, k, ef);
+    let results = if single_threaded {
+        queries
+            .into_iter()
+            .map(|q| index.search(&q, k, ef))
+            .collect()
+    } else {
+        index.knns(queries, k, ef)
+    };
     let querytime_total = querytime_start.elapsed().unwrap_or_default();
     let querytime_per_element = querytime_total / queries_size;
     info!(
@@ -284,6 +291,7 @@ struct AlgorithmOptions {
     ef_construction: usize,
     connections: usize,
     max_connections: usize,
+    single_threaded: bool,
 }
 
 #[derive(SerBin, DeBin, Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -294,7 +302,7 @@ enum Algorithm {
 }
 
 impl Algorithm {
-    fn create<P: Point>(
+    fn create<P: Point + Send + Sync>(
         &self,
         dataset: impl IntoIterator<Item = P>,
         options: impl Into<AlgorithmOptions>,
@@ -312,7 +320,13 @@ impl Algorithm {
                     connections: options.connections,
                     max_connections: options.max_connections,
                 });
-                builder.extend(iter);
+
+                if options.single_threaded {
+                    builder.extend(iter)
+                } else {
+                    builder.extend_parallel(iter);
+                }
+
                 Indexes::NSW(builder.build())
             }
         }
@@ -396,6 +410,10 @@ struct Query {
     /// Put nearest neighbors in sorted (ascending) order
     #[arg(short, long, default_value_t = false)]
     sort: bool,
+
+    /// Do all querying on a single thread
+    #[arg(short = 'S', long, default_value_t = false)]
+    single_threaded: bool,
 }
 
 impl From<&Query> for AlgorithmOptions {
@@ -404,6 +422,7 @@ impl From<&Query> for AlgorithmOptions {
             connections: value.connections,
             ef_construction: value.ef_construction,
             max_connections: value.max_connections,
+            single_threaded: value.single_threaded,
         }
     }
 }
@@ -422,6 +441,7 @@ impl Action for Query {
             &mut index_file.attrs,
             self.k,
             self.ef,
+            self.single_threaded,
         )?;
 
         write_result(&self.outfile, results, self.k, self.sort, index_file.attrs)?;
@@ -464,6 +484,10 @@ struct CreateIndex {
     /// What algorithm to use for index construction
     #[arg(short, long, value_enum, default_value_t = Algorithm::Nsw)]
     algorithm: Algorithm,
+
+    /// Build index on a single thread. Doing so can result in better indexes.
+    #[arg(short = 'S', long, default_value_t = false)]
+    single_threaded: bool,
 }
 
 impl From<&CreateIndex> for AlgorithmOptions {
@@ -472,6 +496,7 @@ impl From<&CreateIndex> for AlgorithmOptions {
             connections: value.connections,
             ef_construction: value.ef_construction,
             max_connections: value.max_connections,
+            single_threaded: value.single_threaded,
         }
     }
 }
@@ -511,6 +536,10 @@ struct QueryIndex {
     /// Put nearest neighbors in sorted (ascending) order
     #[arg(short, long, default_value_t = false)]
     sort: bool,
+
+    /// Do all querying on a single thread
+    #[arg(short = 'S', long, default_value_t = false)]
+    single_threaded: bool,
 }
 
 impl Action for QueryIndex {
@@ -522,6 +551,7 @@ impl Action for QueryIndex {
             &mut index_file.attrs,
             self.k,
             self.ef,
+            self.single_threaded,
         )?;
         write_result(&self.outfile, results, self.k, self.sort, index_file.attrs)?;
 
@@ -576,6 +606,7 @@ impl Action for GroundTruth {
             &mut index_file.attrs,
             self.k,
             self.k,
+            true,
         )?;
 
         info!(outfile = self.outfile, sort = self.sort, "Writing result");

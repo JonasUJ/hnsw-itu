@@ -1,7 +1,7 @@
 #![feature(portable_simd)]
 use core::simd::*;
 use std::iter;
-use std::ops::{Shr, BitAnd};
+use std::ops::{BitAnd, Shr};
 use std::simd::num::SimdUint;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};

@@ -1,6 +1,6 @@
 pub mod bruteforce;
 pub mod nsw;
-use std::{cmp::Ordering, marker::Sync};
+use std::cmp::Ordering;
 
 pub use bruteforce::Bruteforce;
 pub use nsw::NSW;
