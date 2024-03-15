@@ -1,10 +1,11 @@
-use nanoserde::{DeBin, SerBin};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use crate::{Distance, IndexBuilder, MinK, Point};
 
 use super::Index;
 
-#[derive(SerBin, DeBin)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Bruteforce<P> {
     points: Vec<P>,
 }

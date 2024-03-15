@@ -1,20 +1,22 @@
 use std::{
-    io::Write,
+    fs::File,
+    io::{BufReader, BufWriter},
     path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use bincode::{deserialize_from, serialize_into};
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
-use hdf5::{types::VarLenUnicode, File};
+use hdf5::{types::VarLenUnicode, File as Hdf5File};
 use hnsw_itu::{
     nsw::{NSWBuilder, NSWOptions},
     Bruteforce, Distance, Index, IndexBuilder, Point, NSW,
 };
 use hnsw_itu_cli::{BufferedDataset, Sketch};
-use nanoserde::{DeBin, SerBin};
 use ndarray::arr1;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::{filter, layer::SubscriberExt, reload, util::SubscriberInitExt};
 
@@ -79,7 +81,13 @@ fn build_index(
         });
 
     let buildtime_start = SystemTime::now();
-    info!(size, ?algorithm, "Building index");
+    let options = options.into();
+    info!(
+        size,
+        ?algorithm,
+        single_threaded = options.single_threaded,
+        "Building index"
+    );
     let index = algorithm.create(dataset_iter, options);
     let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
     let buildtime_per_element = buildtime_total / size as u32;
@@ -120,7 +128,7 @@ fn query_index<'a>(
     let queries_size: u32 = queries.size().try_into().unwrap();
 
     let querytime_start = SystemTime::now();
-    info!(k, ef, "Start querying");
+    info!(k, ef, single_threaded, "Start querying");
     let results = if single_threaded {
         queries
             .into_iter()
@@ -144,24 +152,25 @@ fn query_index<'a>(
 #[instrument(skip_all)]
 fn read_index(path: &impl AsRef<Path>) -> Result<IndexFile<Sketch>> {
     info!(path = path.as_ref().to_str(), "Reading index");
-    let serialized = std::fs::read(path)?;
-    let index_file: IndexFile<Sketch> = DeBin::deserialize_bin(&serialized)?;
-    info!(
-        size = index_file.index.size(),
-        bytes = serialized.len(),
-        "Read index"
-    );
+
+    let reader = BufReader::new(File::open(path)?);
+    let index_file: IndexFile<Sketch> = deserialize_from(reader).context("Could not read index")?;
+
+    info!(size = index_file.index.size(), "Read index");
 
     Ok(index_file)
 }
 
 #[instrument(skip_all)]
-fn write_index<P: SerBin>(path: &impl AsRef<Path>, index_file: &IndexFile<P>) -> Result<()> {
-    info!(path = path.as_ref().to_str(), "Serializing");
-    let serialized = SerBin::serialize_bin(index_file);
-    let mut file = std::fs::File::create(path)?;
-    info!(bytes = serialized.len(), "Writing");
-    file.write_all(&serialized)?;
+fn write_index<P: Serialize>(path: &impl AsRef<Path>, index_file: &IndexFile<P>) -> Result<()> {
+    info!(
+        path = path.as_ref().to_str(),
+        size = index_file.index.size(),
+        "Serializing"
+    );
+
+    let writer = BufWriter::new(File::create(path)?);
+    serialize_into(writer, index_file)?;
 
     Ok(())
 }
@@ -227,7 +236,7 @@ fn write_result(
     Ok(())
 }
 
-#[derive(SerBin, DeBin, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct ResultAttrs {
     format_size: bool,
     data: String,
@@ -294,7 +303,9 @@ struct AlgorithmOptions {
     single_threaded: bool,
 }
 
-#[derive(SerBin, DeBin, Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[derive(
+    Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum,
+)]
 enum Algorithm {
     #[default]
     Bruteforce,
@@ -333,13 +344,13 @@ impl Algorithm {
     }
 }
 
-#[derive(SerBin, DeBin)]
+#[derive(Serialize, Deserialize)]
 pub enum Indexes<P> {
     Bruteforce(Bruteforce<P>),
     NSW(NSW<P>),
 }
 
-impl<P: Point> Index<P> for Indexes<P> {
+impl<P> Index<P> for Indexes<P> {
     fn size(&self) -> usize {
         match self {
             Self::Bruteforce(bruteforce) => bruteforce.size(),
@@ -358,7 +369,7 @@ impl<P: Point> Index<P> for Indexes<P> {
     }
 }
 
-#[derive(SerBin, DeBin)]
+#[derive(Serialize, Deserialize)]
 struct IndexFile<P> {
     attrs: ResultAttrs,
     index: Indexes<P>,
@@ -610,7 +621,7 @@ impl Action for GroundTruth {
         )?;
 
         info!(outfile = self.outfile, sort = self.sort, "Writing result");
-        let file = File::create(self.outfile)?;
+        let file = Hdf5File::create(self.outfile)?;
         let knns = BufferedDataset::with_file(&file, (results.len(), self.k), "knns")?;
         let dists = BufferedDataset::with_file(&file, (results.len(), self.k), "dists")?;
 

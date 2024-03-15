@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 
-use nanoserde::{DeBin, SerBin};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use crate::{Graph, Idx};
 
-#[derive(SerBin, DeBin, Debug)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SimpleGraph<T> {
     nodes: Vec<T>,
     adj_lists: Vec<HashSet<Idx>>,

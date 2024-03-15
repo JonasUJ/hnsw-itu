@@ -5,6 +5,8 @@ use std::cmp::Ordering;
 pub use bruteforce::Bruteforce;
 pub use nsw::NSW;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
+
+#[cfg(feature = "tracing")]
 use tracing::{debug, instrument};
 
 pub trait IndexBuilder<P> {
@@ -20,13 +22,14 @@ pub trait Index<P> {
     where
         P: Point;
 
-    #[instrument(skip(self, queries))]
+    #[cfg_attr(feature = "tracing", instrument(skip(self, queries)))]
     fn knns<I>(&self, queries: I, k: usize, ef: usize) -> Vec<Vec<Distance<'_, P>>>
     where
         Self: Sync,
         I: IntoIterator<Item = P>,
         P: Point + Sync,
     {
+        #[cfg(feature = "tracing")]
         debug!(threads = rayon::current_num_threads());
         queries
             .into_iter()

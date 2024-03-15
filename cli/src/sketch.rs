@@ -1,8 +1,8 @@
 use hnsw_itu::Point;
-use nanoserde::{DeBin, SerBin};
 use ndarray::{arr1, Array1};
+use serde::{Deserialize, Serialize};
 
-#[derive(SerBin, DeBin, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Sketch {
     pub data: [u64; 16],
 }

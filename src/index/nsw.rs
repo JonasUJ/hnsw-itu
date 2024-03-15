@@ -1,5 +1,6 @@
-use nanoserde::{DeBin, SerBin};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
 use std::{
@@ -288,18 +289,22 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
     }
 }
 
-#[derive(SerBin, DeBin, Debug)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct NSW<P> {
     graph: SimpleGraph<P>,
     ep: Option<Idx>,
 }
 
-impl<P: Point> Index<P> for NSW<P> {
+impl<P> Index<P> for NSW<P> {
     fn size(&self) -> usize {
         self.graph.size()
     }
 
-    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>> {
+    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>>
+    where
+        P: Point,
+    {
         self.ep.map_or_else(Vec::default, |ep| {
             search(&self.graph, query, ef, ep).into_iter().min_k(k)
         })
