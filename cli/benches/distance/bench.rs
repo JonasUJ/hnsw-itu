@@ -1,8 +1,13 @@
 #![feature(portable_simd)]
-use core::simd::*;
-use std::iter;
-use std::ops::{BitAnd, Shr};
-use std::simd::num::SimdUint;
+use std::{
+    arch::x86_64::{
+        __m256i, _mm256_add_epi8, _mm256_and_si256, _mm256_loadu_si256,
+        _mm256_sad_epu8, _mm256_set1_epi8, _mm256_setr_epi8, _mm256_setzero_si256,
+        _mm256_shuffle_epi8, _mm256_srli_epi32,
+    },
+    iter,
+    simd::u64x16,
+};
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
@@ -35,40 +40,34 @@ fn cur_distance(a: Sketch, b: Sketch) -> usize {
 }
 
 #[inline(always)]
-fn avx_count(v: u64x16) -> u64 {
-    let _lookup = [
-        1u64,           // 0, 1
-        4294967298u64,  // 1, 2
-        4294967298u64,  // 1, 2
-        8589934595u64,  // 2, 3
-        4294967298u64,  // 1, 2
-        8589934595u64,  // 2, 3
-        8589934595u64,  // 2, 3
-        12884901892u64, // 3, 4
-        1u64,           // 0, 1
-        4294967298u64,  // 1, 2
-        4294967298u64,  // 1, 2
-        8589934595u64,  // 2, 3
-        4294967298u64,  // 1, 2
-        8589934595u64,  // 2, 3
-        8589934595u64,  // 2, 3
-        12884901892u64, // 3, 4
-    ];
-    let lookup: u64x16 = u64x16::from_array(_lookup);
-    let low_mask = u64x16::from_array([0xf0000000f; 16]);
-    let lo = u64x16::bitand(lookup, low_mask);
-    let hi = u64x16::bitand(v.shr(4), low_mask);
-    let popcnt1 = u64x16::interleave(lookup, lo).0;
-    let popcnt2 = u64x16::interleave(lookup, hi).0;
-    let total: u64x16 = popcnt1 + popcnt2;
-    total.reduce_sum()
+fn avx_count(v: __m256i) -> u64 {
+    unsafe {
+        let lookup = _mm256_setr_epi8(
+            0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2,
+            3, 3, 4,
+        );
+        let low_mask = _mm256_set1_epi8(0x0f);
+        let lo = _mm256_and_si256(v, low_mask);
+        let hi = _mm256_and_si256(_mm256_srli_epi32(v, 4), low_mask);
+        let popcnt1 = _mm256_shuffle_epi8(lookup, lo);
+        let popcnt2 = _mm256_shuffle_epi8(lookup, hi);
+        let total = _mm256_add_epi8(popcnt1, popcnt2);
+        let res: [u64; 4] = std::mem::transmute(_mm256_sad_epu8(total, _mm256_setzero_si256()));
+        res.iter().fold(0, |acc, x| acc + x)
+    }
 }
 
 #[inline(always)]
 fn avx_distance(a: Sketch, b: Sketch) -> usize {
     let a = u64x16::from(a.data);
     let b = u64x16::from(b.data);
-    avx_count(a ^ b) as usize
+    let res = (a ^ b).to_array();
+    unsafe {
+        (avx_count(_mm256_loadu_si256(res.as_ptr() as *const __m256i))
+            + avx_count(_mm256_loadu_si256(res[4..8].as_ptr() as *const __m256i))
+            + avx_count(_mm256_loadu_si256(res[8..12].as_ptr() as *const __m256i))
+            + avx_count(_mm256_loadu_si256(res[12..16].as_ptr() as *const __m256i))) as usize
+    }
 }
 
 #[inline(always)]
