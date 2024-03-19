@@ -2,8 +2,7 @@
 use std::{
     arch::x86_64::{
         __m256i, _mm256_add_epi64, _mm256_add_epi8, _mm256_and_si256, _mm256_loadu_si256,
-        _mm256_sad_epu8, _mm256_set1_epi8, _mm256_setr_epi8, _mm256_setzero_si256,
-        _mm256_shuffle_epi8, _mm256_srli_epi32,
+        _mm256_set1_epi8, _mm256_setr_epi8, _mm256_shuffle_epi8, _mm256_srli_epi32,
     },
     iter,
     simd::u64x16,
@@ -51,8 +50,7 @@ fn avx_count(v: __m256i) -> __m256i {
         let hi = _mm256_and_si256(_mm256_srli_epi32(v, 4), low_mask);
         let popcnt1 = _mm256_shuffle_epi8(lookup, lo);
         let popcnt2 = _mm256_shuffle_epi8(lookup, hi);
-        let total = _mm256_add_epi8(popcnt1, popcnt2);
-        _mm256_sad_epu8(total, _mm256_setzero_si256())
+        _mm256_add_epi8(popcnt1, popcnt2)
     }
 }
 
