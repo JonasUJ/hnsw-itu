@@ -3,6 +3,7 @@ use std::{
     arch::x86_64::{
         __m256i, _mm256_add_epi64, _mm256_add_epi8, _mm256_and_si256, _mm256_loadu_si256,
         _mm256_set1_epi8, _mm256_setr_epi8, _mm256_shuffle_epi8, _mm256_srli_epi32,
+        _mm256_xor_si256,
     },
     iter,
     simd::u64x16,
@@ -56,14 +57,29 @@ fn avx_count(v: __m256i) -> __m256i {
 
 #[inline(always)]
 fn avx_distance(a: Sketch, b: Sketch) -> usize {
-    let a = u64x16::from(a.data);
-    let b = u64x16::from(b.data);
-    let d = (a ^ b).to_array();
     unsafe {
-        let v1 = avx_count(_mm256_loadu_si256(d.as_ptr() as *const __m256i));
-        let v2 = avx_count(_mm256_loadu_si256(d[4..8].as_ptr() as *const __m256i));
-        let v3 = avx_count(_mm256_loadu_si256(d[8..12].as_ptr() as *const __m256i));
-        let v4 = avx_count(_mm256_loadu_si256(d[12..16].as_ptr() as *const __m256i));
+        let a = a.data;
+        let b = b.data;
+        let d1 = _mm256_xor_si256(
+            _mm256_loadu_si256(a.as_ptr() as *const __m256i),
+            _mm256_loadu_si256(b.as_ptr() as *const __m256i),
+        );
+        let d2 = _mm256_xor_si256(
+            _mm256_loadu_si256(a[4..8].as_ptr() as *const __m256i),
+            _mm256_loadu_si256(b[4..8].as_ptr() as *const __m256i),
+        );
+        let d3 = _mm256_xor_si256(
+            _mm256_loadu_si256(a[8..12].as_ptr() as *const __m256i),
+            _mm256_loadu_si256(b[8..12].as_ptr() as *const __m256i),
+        );
+        let d4 = _mm256_xor_si256(
+            _mm256_loadu_si256(a[12..16].as_ptr() as *const __m256i),
+            _mm256_loadu_si256(b[12..16].as_ptr() as *const __m256i),
+        );
+        let v1 = avx_count(d1);
+        let v2 = avx_count(d2);
+        let v3 = avx_count(d3);
+        let v4 = avx_count(d4);
         let r1 = _mm256_add_epi64(v1, v2);
         let r2 = _mm256_add_epi64(v3, v4);
         let res: [u64; 4] = std::mem::transmute(_mm256_add_epi64(r1, r2));
