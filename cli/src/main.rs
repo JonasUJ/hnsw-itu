@@ -617,7 +617,7 @@ impl Action for GroundTruth {
             &mut index_file.attrs,
             self.k,
             self.k,
-            true,
+            false,
         )?;
 
         info!(outfile = self.outfile, sort = self.sort, "Writing result");
