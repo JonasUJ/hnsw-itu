@@ -3,6 +3,7 @@ use std::{collections::HashSet, iter};
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use hnsw_itu::{BitSet, Set};
+use rand::Rng;
 
 macro_rules! bench {
     ($name:literal, $func:ident, $values:ident, $group:ident) => {
@@ -16,15 +17,22 @@ macro_rules! bench {
     };
 }
 
-fn hashset_insert(lst: Vec<usize>) {
+fn hashset_new_insert(lst: Vec<usize>) {
     let mut set = HashSet::new();
     lst.into_iter().for_each(|p| {
         set.insert(p);
     });
 }
 
+fn hashset_with_capacity_insert(lst: Vec<usize>) {
+    let mut set = HashSet::with_capacity(20_000_000);
+    lst.into_iter().for_each(|p| {
+        set.insert(p);
+    });
+}
+
 fn bitset_insert(lst: Vec<usize>) {
-    let mut set = BitSet::new(1000);
+    let mut set = BitSet::new(20_000_000);
     lst.into_iter().for_each(|p| {
         set.insert(p);
     });
@@ -33,11 +41,21 @@ fn bitset_insert(lst: Vec<usize>) {
 pub fn set_insert_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Set insert");
 
-    let size = 1000;
-    let mut points = iter::repeat_with(|| (0..size).collect());
+    let size = 10_000_000;
+    let mut values = iter::repeat_with(|| {
+        (0..size)
+            .map(|_| rand::thread_rng().gen_range(0..size))
+            .collect()
+    });
 
-    bench!("Hashset insert", hashset_insert, points, group);
-    bench!("Bitset insert", bitset_insert, points, group);
+    bench!("Hashset new insert", hashset_new_insert, values, group);
+    bench!(
+        "Hashset with capacity insert",
+        hashset_with_capacity_insert,
+        values,
+        group
+    );
+    bench!("Bitset insert", bitset_insert, values, group);
 }
 
 criterion_group!(benches, set_insert_benchmark);
