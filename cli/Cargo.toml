@@ -29,3 +29,13 @@ criterion = "0.5"
 name = "distance"
 path = "benches/distance/bench.rs"
 harness = false
+
+[[bench]]
+name = "set_insert"
+path = "benches/set/insert.rs"
+harness = false
+
+[[bench]]
+name = "set_contains"
+path = "benches/set/contains.rs"
+harness = false
