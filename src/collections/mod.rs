@@ -1,7 +1,9 @@
+pub mod bitset;
 pub mod simplegraph;
 
 use std::collections::BinaryHeap;
 
+pub use crate::bitset::*;
 pub use crate::simplegraph::*;
 
 pub type Idx = usize;
@@ -73,6 +75,15 @@ pub trait MinK: Iterator {
 }
 
 impl<T> MinK for T where T: Iterator {}
+
+pub trait Set<T>
+where
+    T: Into<u64> + Clone,
+{
+    fn insert(&mut self, t: T);
+
+    fn contains(&self, t: T) -> bool;
+}
 
 #[cfg(test)]
 mod tests {
