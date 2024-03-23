@@ -29,6 +29,14 @@ where
     }
 }
 
+impl Clone for BitSet {
+    fn clone(&self) -> Self {
+        Self {
+            bits: self.bits.clone()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
