@@ -78,7 +78,7 @@ impl<T> MinK for T where T: Iterator {}
 
 pub trait Set<T>
 where
-    T: Into<u64> + Clone,
+    T: Into<usize> + Clone,
 {
     fn insert(&mut self, t: T);
 

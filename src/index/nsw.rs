@@ -2,11 +2,8 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashSet},
-};
+use crate::{BitSet, Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, Set, SimpleGraph};
+use std::{cmp::Reverse, collections::BinaryHeap};
 
 fn select_neighbors<'a, P: Point>(
     mut candidates: BinaryHeap<Reverse<Distance<'a, P>>>,
@@ -121,7 +118,8 @@ fn search<'a, P: Point>(
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
     let dist = Distance::new(ep_elem.distance(query), ep, ep_elem);
 
-    let mut visited: HashSet<Idx> = HashSet::from_iter([ep]);
+    let mut visited: BitSet = BitSet::new(graph.size());
+    visited.insert(ep);
     let mut w = BinaryHeap::from_iter([dist.clone()]);
     let mut cands = BinaryHeap::from_iter([Reverse(dist)]);
 
@@ -134,7 +132,7 @@ fn search<'a, P: Point>(
         }
 
         for e in graph.neighborhood(c.key()) {
-            if visited.contains(e) {
+            if visited.contains(*e) {
                 continue;
             }
 
