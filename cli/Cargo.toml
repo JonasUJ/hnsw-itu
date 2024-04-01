@@ -16,10 +16,12 @@ clap-verbosity-flag = "2.2.0"
 hdf5 = "0.8.1"
 hnsw-itu = { version = "0.1.0", path = "..", features = ["serde", "tracing"] }
 ndarray = "0.15.6"
+predicates = "3.1.0"
 rand = "0.8.5"
 serde = "1.0.197"
 time = { version = "0.3.34", features = ["formatting", "local-offset"] }
 tracing = "0.1.40"
+tracing-capture = "0.2.0-beta.1"
 tracing-subscriber = { version = "0.3.18", features = ["fmt", "time"] }
 
 [dev-dependencies]
@@ -39,3 +41,6 @@ harness = false
 name = "set_contains"
 path = "benches/set/contains.rs"
 harness = false
+
+[features]
+instrument = []

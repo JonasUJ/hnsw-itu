@@ -18,11 +18,18 @@ use hnsw_itu_cli::{BufferedDataset, Sketch};
 use ndarray::arr1;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
-use tracing_subscriber::{filter, layer::SubscriberExt, reload, util::SubscriberInitExt};
+use tracing_subscriber::{filter, layer::SubscriberExt, reload, util::SubscriberInitExt, Layer};
+
+#[cfg(feature = "instrument")]
+use {
+    predicates::{ord::eq, Predicate},
+    tracing::Level,
+    tracing_capture::{predicates::*, CaptureLayer, SharedStorage},
+};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let level = match cli.verbose.log_level_filter() {
+    let logging_level = match cli.verbose.log_level_filter() {
         clap_verbosity_flag::LevelFilter::Off => filter::LevelFilter::OFF,
         clap_verbosity_flag::LevelFilter::Error => filter::LevelFilter::ERROR,
         clap_verbosity_flag::LevelFilter::Warn => filter::LevelFilter::WARN,
@@ -33,14 +40,57 @@ fn main() -> Result<()> {
     let timer = time::format_description::parse("[hour]:[minute]:[second]").unwrap();
     let time_offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
     let timer = tracing_subscriber::fmt::time::OffsetTime::new(time_offset, timer);
-    let (filter, _reload_handle) = reload::Layer::new(level);
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(tracing_subscriber::fmt::layer().with_timer(timer))
+    let (filter, _reload_handle) = reload::Layer::new(logging_level);
+
+    let registry = tracing_subscriber::registry();
+
+    #[cfg(feature = "instrument")]
+    let storage = SharedStorage::default();
+    #[cfg(feature = "instrument")]
+    let registry = registry.with(CaptureLayer::new(&storage));
+
+    registry
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_timer(timer)
+                .with_filter(filter),
+        )
         .init();
-    debug!(?level, "Logging");
+
+    debug!(?logging_level, "Logging");
+
     cli.command.exec()?;
+
+    #[cfg(feature = "instrument")]
+    instrumentation(storage);
+
     Ok(())
+}
+
+#[cfg(feature = "instrument")]
+fn instrumentation(storage: SharedStorage) {
+    let storage = storage.lock();
+    let visited_predicate = level(Level::TRACE) & message(eq("visited"));
+
+    let mut counts = storage
+        .all_events()
+        .filter(|e| visited_predicate.eval(e))
+        .map(|e| e["visited"].as_uint().unwrap() as u64)
+        .collect::<Vec<_>>();
+    counts.sort();
+    let len = counts.len();
+
+    println!(
+        "search (nodes visited)\ntotal {}\nmean  {}\nmax   {}\np25   {}\np50   {}\np75   {}\np90   {}\np99   {}",
+        counts.iter().sum::<u64>(),
+        counts.iter().sum::<u64>() / len as u64,
+        counts.last().unwrap(),
+        counts[len / 4],
+        counts[len / 2],
+        counts[len - len / 4],
+        counts[len - len / 9],
+        counts[len - len / 99],
+    );
 }
 
 #[instrument(skip_all)]

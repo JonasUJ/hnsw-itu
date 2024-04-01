@@ -1,6 +1,7 @@
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
 use std::{
@@ -157,6 +158,7 @@ fn search<'a, P: Point>(
         }
     }
 
+    trace!(visited = visited.len(), "visited");
     w.into_iter().take(ef).collect()
 }
 
