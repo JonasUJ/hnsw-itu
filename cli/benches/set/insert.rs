@@ -25,14 +25,14 @@ fn hashset_new_insert(lst: Vec<usize>) {
 }
 
 fn hashset_with_capacity_insert(lst: Vec<usize>) {
-    let mut set = HashSet::with_capacity(20_000_000);
+    let mut set = HashSet::with_capacity(2000);
     lst.into_iter().for_each(|p| {
         set.insert(p);
     });
 }
 
 fn bitset_insert(lst: Vec<usize>) {
-    let mut set = BitSet::new(20_000_000);
+    let mut set = BitSet::new(10_000_000);
     lst.into_iter().for_each(|p| {
         set.insert(p);
     });
@@ -41,7 +41,7 @@ fn bitset_insert(lst: Vec<usize>) {
 pub fn set_insert_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Set insert");
 
-    let size = 10_000_000;
+    let size = 2_000;
     let mut values = iter::repeat_with(|| {
         (0..size)
             .map(|_| rand::thread_rng().gen_range(0..size))

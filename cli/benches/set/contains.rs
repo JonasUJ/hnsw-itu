@@ -32,7 +32,7 @@ fn bitset_contains(set: BitSet, lst: Vec<usize>) {
 pub fn set_contains_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Set contains");
 
-    let size = 10_000_000;
+    let size = 2_000;
     let mut values = iter::repeat_with(|| {
         (0..size)
             .map(|_| rand::thread_rng().gen_range(0..size))
@@ -40,7 +40,7 @@ pub fn set_contains_benchmark(c: &mut Criterion) {
     });
 
     let mut hashset = HashSet::new();
-    let mut bitset = BitSet::new(20_000_000);
+    let mut bitset = BitSet::new(10_000_000);
 
     for _ in 0..size / 2 {
         let i = rand::thread_rng().gen_range(0..size);
