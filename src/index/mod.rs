@@ -9,6 +9,8 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 #[cfg(feature = "tracing")]
 use tracing::{debug, instrument};
 
+use crate::Idx;
+
 pub trait IndexBuilder<P> {
     type Index: Index<P>;
 
@@ -47,7 +49,7 @@ pub trait Point {
 #[derive(Debug)]
 pub struct Distance<'a, P> {
     distance: usize,
-    key: usize,
+    key: Idx,
     point: &'a P,
 }
 
@@ -62,7 +64,7 @@ impl<'a, P> Clone for Distance<'a, P> {
 }
 
 impl<'a, P> Distance<'a, P> {
-    pub const fn new(distance: usize, key: usize, point: &'a P) -> Self {
+    pub const fn new(distance: usize, key: Idx, point: &'a P) -> Self {
         Self {
             distance,
             key,
@@ -74,7 +76,7 @@ impl<'a, P> Distance<'a, P> {
         self.distance
     }
 
-    pub const fn key(&self) -> usize {
+    pub const fn key(&self) -> Idx {
         self.key
     }
 

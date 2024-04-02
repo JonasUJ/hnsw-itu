@@ -11,5 +11,6 @@ debug = true
 
 [dependencies]
 rayon = "1.8.1"
+roaring = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.197", features = ["derive"], optional = true }
 tracing = { version = "0.1.40", optional = true }

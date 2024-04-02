@@ -32,7 +32,7 @@ where
 impl Clone for BitSet {
     fn clone(&self) -> Self {
         Self {
-            bits: self.bits.clone()
+            bits: self.bits.clone(),
         }
     }
 }

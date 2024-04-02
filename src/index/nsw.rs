@@ -3,7 +3,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
+use crate::{BitSet, Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, Set, SimpleGraph};
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashSet},
@@ -37,7 +37,7 @@ fn search_select_neighbors<P: Point>(
     m: usize,
     ef: usize,
     ep: Idx,
-) -> Vec<usize> {
+) -> Vec<Idx> {
     let w = search(graph, point, ef, ep)
         .into_iter()
         .map(Reverse)
@@ -79,7 +79,7 @@ fn insert_idx<P: Point>(
 fn insert_neighbors<P: Point>(
     graph: &mut impl Graph<P>,
     point_idx: Idx,
-    neighbors: Vec<usize>,
+    neighbors: Vec<Idx>,
     m_max: usize,
 ) {
     for e in &neighbors {
@@ -88,7 +88,7 @@ fn insert_neighbors<P: Point>(
 
     for e in neighbors {
         let e_elem = graph.get(e).unwrap();
-        let e_conn = graph.neighborhood(e).copied().collect::<Vec<_>>();
+        let e_conn = graph.neighborhood(e).collect::<Vec<_>>();
 
         if e_conn.len() <= m_max {
             continue;
@@ -135,15 +135,15 @@ fn search<'a, P: Point>(
         }
 
         for e in graph.neighborhood(c.key()) {
-            if visited.contains(e) {
+            if visited.contains(&e) {
                 continue;
             }
 
-            visited.insert(*e);
+            visited.insert(e);
             let f = w.peek().expect("w can't be empty");
 
-            let point = graph.get(*e).unwrap();
-            let e_dist = Distance::new(point.distance(query), *e, point);
+            let point = graph.get(e).unwrap();
+            let e_dist = Distance::new(point.distance(query), e, point);
 
             if e_dist.distance() >= f.distance() && w.len() >= ef {
                 continue;

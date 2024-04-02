@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 pub use crate::bitset::*;
 pub use crate::simplegraph::*;
 
-pub type Idx = usize;
+pub type Idx = u32;
 
 pub trait Graph<T> {
     fn add(&mut self, t: T) -> Idx;
@@ -17,12 +17,12 @@ pub trait Graph<T> {
 
     fn remove_edge(&mut self, v: Idx, w: Idx);
 
-    fn neighborhood(&self, v: Idx) -> impl Iterator<Item = &Idx>;
+    fn neighborhood(&self, v: Idx) -> impl Iterator<Item = Idx>;
 
     fn size(&self) -> usize;
 
     fn is_connected(&self, v: Idx, w: Idx) -> bool {
-        self.neighborhood(v).any(|&i| i == w)
+        self.neighborhood(v).any(|i| i == w)
     }
 
     fn degree(&self, v: Idx) -> usize {
@@ -30,7 +30,7 @@ pub trait Graph<T> {
     }
 
     fn clear_edges(&mut self, v: Idx) {
-        let neighbors = self.neighborhood(v).copied().collect::<Vec<_>>();
+        let neighbors = self.neighborhood(v).collect::<Vec<_>>();
         for w in neighbors {
             self.remove_edge(v, w);
         }
