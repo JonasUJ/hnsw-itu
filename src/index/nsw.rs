@@ -122,7 +122,8 @@ fn search<'a, P: Point>(
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
     let dist = Distance::new(ep_elem.distance(query), ep, ep_elem);
 
-    let mut visited: HashSet<Idx> = HashSet::from_iter([ep]);
+    let mut visited = HashSet::<Idx>::with_capacity(2048);
+    visited.insert(ep);
     let mut w = BinaryHeap::from_iter([dist.clone()]);
     let mut cands = BinaryHeap::from_iter([Reverse(dist)]);
 
