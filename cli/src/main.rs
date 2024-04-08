@@ -131,7 +131,8 @@ fn build_index(
         });
 
     let buildtime_start = SystemTime::now();
-    let options = options.into();
+    let mut options = options.into();
+    options.size = Some(options.size.unwrap_or(size));
     info!(
         size,
         ?algorithm,
@@ -351,7 +352,7 @@ struct AlgorithmOptions {
     connections: usize,
     max_connections: usize,
     single_threaded: bool,
-    size: usize,
+    size: Option<usize>,
 }
 
 #[derive(
@@ -381,7 +382,7 @@ impl Algorithm {
                     ef_construction: options.ef_construction,
                     connections: options.connections,
                     max_connections: options.max_connections,
-                    size: dataset.,
+                    size: options.size.expect("size must be know"),
                 });
 
                 if options.single_threaded {
@@ -486,7 +487,7 @@ impl From<&Query> for AlgorithmOptions {
             ef_construction: value.ef_construction,
             max_connections: value.max_connections,
             single_threaded: value.single_threaded,
-            size: BufferedDataset::open(&value.datafile, "hamming")
+            size: None,
         }
     }
 }
@@ -561,6 +562,7 @@ impl From<&CreateIndex> for AlgorithmOptions {
             ef_construction: value.ef_construction,
             max_connections: value.max_connections,
             single_threaded: value.single_threaded,
+            size: None,
         }
     }
 }
