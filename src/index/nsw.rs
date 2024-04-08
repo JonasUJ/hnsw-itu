@@ -3,7 +3,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
+use crate::{BitSet, Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph, VisitedPool};
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashSet},
@@ -167,6 +167,7 @@ pub struct NSWOptions {
     pub ef_construction: usize,
     pub connections: usize,
     pub max_connections: usize,
+    pub size: usize,
 }
 
 impl Default for NSWOptions {
@@ -175,6 +176,7 @@ impl Default for NSWOptions {
             ef_construction: 100,
             connections: 16,
             max_connections: 32,
+            size: 0,
         }
     }
 }
@@ -186,6 +188,7 @@ pub struct NSWBuilder<P> {
     ef_construction: usize,
     connections: usize,
     max_connections: usize,
+    visited_pool: VisitedPool<BitSet>,
 }
 
 impl<P> NSWBuilder<P> {
@@ -196,6 +199,7 @@ impl<P> NSWBuilder<P> {
             ef_construction: options.ef_construction,
             connections: options.connections,
             max_connections: options.max_connections,
+            visited_pool: VisitedPool::new(0, || BitSet::new(options.size)),
         }
     }
 }

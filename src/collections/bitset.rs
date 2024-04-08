@@ -1,4 +1,4 @@
-use crate::Set;
+use crate::{Idx, Reset, Set};
 
 #[derive(Debug)]
 pub struct BitSet {
@@ -29,6 +29,13 @@ where
     }
 }
 
+impl Reset for BitSet
+{
+    fn reset(&mut self) {
+        self.bits = self.bits.iter().map(|_| 0).collect();
+    }
+}
+
 impl Clone for BitSet {
     fn clone(&self) -> Self {
         Self {
@@ -51,5 +58,10 @@ mod tests {
         assert!(!set.contains(67usize));
         assert!(!set.contains(29usize));
         assert!(!set.contains(30usize));
+
+        set.reset();
+
+        assert!(!set.contains(3usize));
+        assert!(!set.contains(93usize));
     }
 }
