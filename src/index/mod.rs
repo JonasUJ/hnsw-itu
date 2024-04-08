@@ -1,9 +1,11 @@
 pub mod bruteforce;
 pub mod nsw;
+pub mod hnsw;
 use std::cmp::Ordering;
 
-pub use bruteforce::Bruteforce;
-pub use nsw::NSW;
+pub use bruteforce::*;
+pub use nsw::*;
+pub use hnsw::*;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 
 #[cfg(feature = "tracing")]

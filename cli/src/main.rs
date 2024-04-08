@@ -11,8 +11,8 @@ use bincode::{deserialize_from, serialize_into};
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File as Hdf5File};
 use hnsw_itu::{
-    nsw::{NSWBuilder, NSWOptions},
-    Bruteforce, Distance, Index, IndexBuilder, Point, NSW,
+    Bruteforce, Distance, HNSWBuilder, Index, IndexBuilder, NSWBuilder, NSWOptions, Point, HNSW,
+    NSW,
 };
 use hnsw_itu_cli::{BufferedDataset, Sketch};
 use ndarray::arr1;
@@ -182,7 +182,12 @@ fn query_index<'a>(
     let results = if single_threaded {
         queries
             .into_iter()
-            .map(|q| index.search(&q, k, ef))
+            .enumerate()
+            .map(|(i, q)| {
+                if i == 160 {
+                    println!("1");
+                }
+                index.search(&q, k, ef)})
             .collect()
     } else {
         index.knns(queries, k, ef)
@@ -360,10 +365,11 @@ enum Algorithm {
     #[default]
     Bruteforce,
     Nsw,
+    Hnsw,
 }
 
 impl Algorithm {
-    fn create<P: Point + Send + Sync>(
+    fn create<P: Point + Clone + Send + Sync>(
         &self,
         dataset: impl IntoIterator<Item = P>,
         options: impl Into<AlgorithmOptions>,
@@ -390,6 +396,23 @@ impl Algorithm {
 
                 Indexes::NSW(builder.build())
             }
+            Algorithm::Hnsw => {
+                let iter = dataset.into_iter();
+                let mut builder = HNSWBuilder::new(NSWOptions {
+                    ef_construction: options.ef_construction,
+                    connections: options.connections,
+                    max_connections: options.max_connections,
+                });
+
+                if options.single_threaded {
+                    builder.extend(iter)
+                } else {
+                    //builder.extend_parallel(iter);
+                    todo!("no multithreading for hnsw construction yet");
+                }
+
+                Indexes::HNSW(builder.build())
+            }
         }
     }
 }
@@ -398,6 +421,7 @@ impl Algorithm {
 pub enum Indexes<P> {
     Bruteforce(Bruteforce<P>),
     NSW(NSW<P>),
+    HNSW(HNSW<P>),
 }
 
 impl<P> Index<P> for Indexes<P> {
@@ -405,6 +429,7 @@ impl<P> Index<P> for Indexes<P> {
         match self {
             Self::Bruteforce(bruteforce) => bruteforce.size(),
             Self::NSW(nsw) => nsw.size(),
+            Self::HNSW(hnsw) => hnsw.size(),
         }
     }
 
@@ -415,6 +440,7 @@ impl<P> Index<P> for Indexes<P> {
         match self {
             Self::Bruteforce(bruteforce) => bruteforce.search(query, k, ef),
             Self::NSW(nsw) => nsw.search(query, k, ef),
+            Self::HNSW(hnsw) => hnsw.search(query, k, ef),
         }
     }
 }

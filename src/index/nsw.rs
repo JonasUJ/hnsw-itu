@@ -1,28 +1,27 @@
+use crate::{Distance, Graph, Idx, Index, IndexBuilder, Point, SimpleGraph};
+use min_max_heap::MinMaxHeap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+#[cfg(feature = "tracing")]
 use tracing::trace;
 
-use crate::{Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph};
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashSet},
-};
-
-fn select_neighbors<'a, P: Point>(
-    mut candidates: BinaryHeap<Reverse<Distance<'a, P>>>,
+pub(crate) fn select_neighbors<'a, P>(
+    mut candidates: MinMaxHeap<Distance<'a, P>>,
     m: usize,
+    distance_fn: impl Fn(&P, &P) -> usize,
 ) -> Vec<Distance<'a, P>> {
     let mut return_list = Vec::<Distance<'a, P>>::new();
 
-    while let Some(Reverse(e)) = candidates.pop() {
+    while let Some(e) = candidates.pop_min() {
         if return_list.len() >= m {
             break;
         }
 
         if return_list
             .iter()
-            .all(|r| e.point().distance(r.point()) > e.distance())
+            .all(|r| distance_fn(e.point(), r.point()) > e.distance())
         {
             return_list.push(e);
         }
@@ -31,62 +30,68 @@ fn select_neighbors<'a, P: Point>(
     return_list
 }
 
-fn search_select_neighbors<P: Point>(
+pub(crate) fn search_select_neighbors<P>(
     graph: &impl Graph<P>,
     point: &P,
     m: usize,
     ef: usize,
     ep: Idx,
-) -> Vec<usize> {
-    let w = search(graph, point, ef, ep)
-        .into_iter()
-        .map(Reverse)
-        .collect::<BinaryHeap<_>>();
+    distance_fn: &impl Fn(&P, &P) -> usize,
+) -> Vec<Idx> {
+    let w = search(graph, point, ef, ep, distance_fn);
 
-    select_neighbors(w, m)
+    select_neighbors(w, m, distance_fn)
         .into_iter()
         .map(|x| x.key())
         .collect()
 }
 
-fn insert_point<P: Point>(
+pub(crate) fn insert_point<P: Point>(
     graph: &mut impl Graph<P>,
     point: P,
     m: usize,
     m_max: usize,
     ef: usize,
     ep: Idx,
-) {
+) -> Idx {
     let point_idx = graph.add(point);
 
-    insert_idx(graph, point_idx, m, m_max, ef, ep)
+    insert_idx(graph, point_idx, m, m_max, ef, ep, Point::distance)
 }
 
-fn insert_idx<P: Point>(
+pub(crate) fn insert_idx<P>(
     graph: &mut impl Graph<P>,
     point_idx: Idx,
     m: usize,
     m_max: usize,
     ef: usize,
     ep: Idx,
-) {
-    let point = graph.get(point_idx).unwrap();
-    let neighbors = search_select_neighbors(graph, point, m, ef, ep);
+    distance_fn: impl Fn(&P, &P) -> usize,
+) -> Idx {
+    let point = graph
+        .get(point_idx)
+        .expect("insert_idx expects point_idx to be in the graph");
+    let neighbors = search_select_neighbors(graph, point, m, ef, ep, &distance_fn);
 
-    insert_neighbors(graph, point_idx, neighbors, m_max);
+    insert_neighbors(graph, point_idx, &neighbors, m_max, distance_fn);
+
+    *neighbors
+        .first()
+        .expect("there should at least be the element we inserted")
 }
 
-fn insert_neighbors<P: Point>(
+pub(crate) fn insert_neighbors<P>(
     graph: &mut impl Graph<P>,
     point_idx: Idx,
-    neighbors: Vec<usize>,
+    neighbors: &Vec<Idx>,
     m_max: usize,
+    distance_fn: impl Fn(&P, &P) -> usize,
 ) {
-    for e in &neighbors {
+    for e in neighbors {
         graph.add_edge(point_idx, *e);
     }
 
-    for e in neighbors {
+    for &e in neighbors {
         let e_elem = graph.get(e).unwrap();
         let e_conn = graph.neighborhood(e).copied().collect::<Vec<_>>();
 
@@ -98,11 +103,11 @@ fn insert_neighbors<P: Point>(
             .into_iter()
             .map(|idx| {
                 let v = graph.get(idx).unwrap();
-                Reverse(Distance::new(v.distance(e_elem), idx, v))
+                Distance::new(distance_fn(v, e_elem), idx, v)
             })
-            .collect::<BinaryHeap<_>>();
+            .collect::<MinMaxHeap<_>>();
 
-        let e_new_conn = select_neighbors(candidates, m_max);
+        let e_new_conn = select_neighbors(candidates, m_max, &distance_fn);
 
         let a = e_new_conn
             .into_iter()
@@ -113,23 +118,24 @@ fn insert_neighbors<P: Point>(
     }
 }
 
-fn search<'a, P: Point>(
+pub(crate) fn search<'a, P, Q>(
     graph: &'a impl Graph<P>,
-    query: &P,
+    query: &Q,
     ef: usize,
     ep: Idx,
-) -> Vec<Distance<'a, P>> {
+    distance_fn: impl Fn(&P, &Q) -> usize,
+) -> MinMaxHeap<Distance<'a, P>> {
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
-    let dist = Distance::new(ep_elem.distance(query), ep, ep_elem);
+    let dist = Distance::new(distance_fn(ep_elem, query), ep, ep_elem);
 
     let mut visited = HashSet::<Idx>::with_capacity(2048);
     visited.insert(ep);
-    let mut w = BinaryHeap::from_iter([dist.clone()]);
-    let mut cands = BinaryHeap::from_iter([Reverse(dist)]);
+    let mut w = MinMaxHeap::from_iter([dist.clone()]);
+    let mut cands = MinMaxHeap::from_iter([dist]);
 
     while !cands.is_empty() {
-        let Reverse(c) = cands.pop().expect("cands can't be empty");
-        let f = w.peek().expect("w can't be empty");
+        let c = cands.pop_min().expect("cands can't be empty");
+        let f = w.peek_max().expect("w can't be empty");
 
         if c.distance() > f.distance() {
             break;
@@ -141,26 +147,28 @@ fn search<'a, P: Point>(
             }
 
             visited.insert(*e);
-            let f = w.peek().expect("w can't be empty");
+            let f = w.peek_max().expect("w can't be empty");
 
             let point = graph.get(*e).unwrap();
-            let e_dist = Distance::new(point.distance(query), *e, point);
+            let e_dist = Distance::new(distance_fn(point, query), *e, point);
 
             if e_dist.distance() >= f.distance() && w.len() >= ef {
                 continue;
             }
 
-            cands.push(Reverse(e_dist.clone()));
+            cands.push(e_dist.clone());
             w.push(e_dist);
 
             if w.len() > ef {
-                w.pop();
+                w.pop_max();
             }
         }
     }
 
+    #[cfg(feature = "tracing")]
     trace!(visited = visited.len(), "visited");
-    w.into_iter().take(ef).collect()
+
+    w
 }
 
 pub struct NSWOptions {
@@ -236,13 +244,20 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
                         self.connections,
                         self.ef_construction,
                         self.ep.unwrap(),
+                        &Point::distance,
                     );
 
                     (point_idx, neighbors)
                 })
                 .collect::<Vec<_>>()
             {
-                insert_neighbors(&mut self.graph, point_idx, neighbors, self.max_connections);
+                insert_neighbors(
+                    &mut self.graph,
+                    point_idx,
+                    &neighbors,
+                    self.max_connections,
+                    Point::distance,
+                );
             }
         }
     }
@@ -279,6 +294,7 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
                     self.max_connections,
                     self.ef_construction,
                     ep,
+                    Point::distance,
                 )
             }
         };
@@ -309,7 +325,10 @@ impl<P> Index<P> for NSW<P> {
         P: Point,
     {
         self.ep.map_or_else(Vec::default, |ep| {
-            search(&self.graph, query, ef, ep).into_iter().min_k(k)
+            search(&self.graph, query, ef, ep, Point::distance)
+                .drain_asc()
+                .take(k)
+                .collect()
         })
     }
 }
@@ -360,12 +379,10 @@ mod tests {
 
         let heap = numbers
             .iter()
-            .map(|x| Reverse(Distance::new(x.distance(&q), 0, x)))
-            .collect::<BinaryHeap<_>>();
+            .map(|x| Distance::new(x.distance(&q), 0, x))
+            .collect::<MinMaxHeap<_>>();
 
-        let actual = select_neighbors(heap, 3);
-
-        dbg!(&actual);
+        let actual = select_neighbors(heap, 3, Point::distance);
 
         assert!(unordered_eq(
             actual.iter().map(|dist| dist.point()),

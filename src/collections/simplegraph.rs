@@ -36,6 +36,16 @@ impl<T> SimpleGraph<T> {
     }
 }
 
+impl<T: Clone> Clone for SimpleGraph<T> {
+    fn clone(&self) -> Self {
+        Self {
+            nodes: self.nodes.clone(),
+            adj_lists: self.adj_lists.clone(),
+            empty: self.empty.clone(),
+        }
+    }
+}
+
 impl<T> Default for SimpleGraph<T> {
     fn default() -> Self {
         Self {
