@@ -76,6 +76,10 @@ pub trait MinK: Iterator {
 
 impl<T> MinK for T where T: Iterator {}
 
+pub trait Reset {
+    fn reset(&mut self);
+}
+
 pub trait Set<T>
 where
     T: Into<usize> + Clone,
@@ -83,6 +87,8 @@ where
     fn insert(&mut self, t: T);
 
     fn contains(&self, t: T) -> bool;
+
+    fn len(&self) -> usize;
 }
 
 #[cfg(test)]

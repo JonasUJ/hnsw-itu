@@ -1,11 +1,15 @@
-use crate::{Distance, Graph, Idx, Index, IndexBuilder, Point, SimpleGraph};
+use std::collections::HashSet;
+
+use crate::{BitSet, Distance, Graph, Idx, Index, IndexBuilder, Point, Reset, Set, SimpleGraph};
 use min_max_heap::MinMaxHeap;
+use object_pool::Pool;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 #[cfg(feature = "tracing")]
 use tracing::trace;
+
+pub type SetPool = Pool<HashSet<Idx>>;
 
 pub(crate) fn select_neighbors<'a, P>(
     mut candidates: MinMaxHeap<Distance<'a, P>>,
@@ -37,8 +41,9 @@ pub(crate) fn search_select_neighbors<P>(
     ef: usize,
     ep: Idx,
     distance_fn: &impl Fn(&P, &P) -> usize,
+    pool: &SetPool,
 ) -> Vec<Idx> {
-    let w = search(graph, point, ef, ep, distance_fn);
+    let w = search(graph, point, ef, ep, distance_fn, pool);
 
     select_neighbors(w, m, distance_fn)
         .into_iter()
@@ -53,10 +58,11 @@ pub(crate) fn insert_point<P: Point>(
     m_max: usize,
     ef: usize,
     ep: Idx,
+    pool: &mut SetPool,
 ) -> Idx {
     let point_idx = graph.add(point);
 
-    insert_idx(graph, point_idx, m, m_max, ef, ep, Point::distance)
+    insert_idx(graph, point_idx, m, m_max, ef, ep, Point::distance, pool)
 }
 
 pub(crate) fn insert_idx<P>(
@@ -67,11 +73,12 @@ pub(crate) fn insert_idx<P>(
     ef: usize,
     ep: Idx,
     distance_fn: impl Fn(&P, &P) -> usize,
+    pool: &SetPool,
 ) -> Idx {
     let point = graph
         .get(point_idx)
         .expect("insert_idx expects point_idx to be in the graph");
-    let neighbors = search_select_neighbors(graph, point, m, ef, ep, &distance_fn);
+    let neighbors = search_select_neighbors(graph, point, m, ef, ep, &distance_fn, pool);
 
     insert_neighbors(graph, point_idx, &neighbors, m_max, distance_fn);
 
@@ -124,11 +131,15 @@ pub(crate) fn search<'a, P, Q>(
     ef: usize,
     ep: Idx,
     distance_fn: impl Fn(&P, &Q) -> usize,
+    pool: &SetPool,
 ) -> MinMaxHeap<Distance<'a, P>> {
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
     let dist = Distance::new(distance_fn(ep_elem, query), ep, ep_elem);
 
-    let mut visited = HashSet::<Idx>::with_capacity(2048);
+    //let mut visited = HashSet::<Idx>::with_capacity(2048);
+    //visited.insert(ep);
+    let mut visited = pool.try_pull().unwrap();
+    visited.clear();
     visited.insert(ep);
     let mut w = MinMaxHeap::from_iter([dist.clone()]);
     let mut cands = MinMaxHeap::from_iter([dist]);
@@ -175,6 +186,7 @@ pub struct NSWOptions {
     pub ef_construction: usize,
     pub connections: usize,
     pub max_connections: usize,
+    pub size: usize,
 }
 
 impl Default for NSWOptions {
@@ -183,17 +195,18 @@ impl Default for NSWOptions {
             ef_construction: 100,
             connections: 16,
             max_connections: 32,
+            size: 0,
         }
     }
 }
 
-#[derive(Debug)]
 pub struct NSWBuilder<P> {
     graph: SimpleGraph<P>,
     ep: Option<Idx>,
     ef_construction: usize,
     connections: usize,
     max_connections: usize,
+    visited_pool: SetPool,
 }
 
 impl<P> NSWBuilder<P> {
@@ -204,6 +217,7 @@ impl<P> NSWBuilder<P> {
             ef_construction: options.ef_construction,
             connections: options.connections,
             max_connections: options.max_connections,
+            visited_pool: Pool::new(rayon::current_num_threads(), || HashSet::with_capacity(2000)),
         }
     }
 }
@@ -221,7 +235,7 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
         // There needs to be some amount of nodes already to not generate a truly horrible graph.
         self.extend(iter.by_ref().take(0.max(50_000 - self.graph.size())));
 
-        let chunk_size = rayon::max_num_threads();
+        let chunk_size = rayon::current_num_threads();
 
         loop {
             let chunk = iter.by_ref().take(chunk_size).collect::<Vec<_>>();
@@ -245,6 +259,7 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
                         self.ef_construction,
                         self.ep.unwrap(),
                         &Point::distance,
+                        &self.visited_pool,
                     );
 
                     (point_idx, neighbors)
@@ -271,8 +286,8 @@ impl<P: Point> Extend<P> for NSWBuilder<P> {
     }
 }
 
-impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
-    type Index = NSW<P>;
+impl<P: Point> IndexBuilder<P, NSW<P>> for NSWBuilder<P> {
+    type Index = NSWIndex<P>;
 
     fn add(&mut self, point: P) {
         match self.ep {
@@ -283,6 +298,7 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
                 self.max_connections,
                 self.ef_construction,
                 ep,
+                &mut self.visited_pool,
             ),
             None => {
                 let ep = self.graph.add(point);
@@ -295,24 +311,47 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
                     self.ef_construction,
                     ep,
                     Point::distance,
+                    &mut self.visited_pool,
                 )
             }
         };
     }
 
     fn build(self) -> Self::Index {
-        NSW {
+        NSWIndex {
             graph: self.graph,
             ep: self.ep,
         }
     }
 }
 
-#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct NSWIndex<P> {
+    graph: SimpleGraph<P>,
+    ep: Option<Idx>,
+}
+
+impl<P> NSWIndex<P> {
+    pub fn size(&self) -> usize {
+        self.graph.size()
+    }
+}
+
+impl<P> From<NSWIndex<P>> for NSW<P> {
+    fn from(value: NSWIndex<P>) -> Self {
+        let size = value.graph.size();
+        NSW {
+            graph: value.graph,
+            ep: value.ep,
+            visited_pool: Pool::new(rayon::current_num_threads(), || HashSet::with_capacity(2000)),
+        }
+    }
+}
+
 pub struct NSW<P> {
     graph: SimpleGraph<P>,
     ep: Option<Idx>,
+    visited_pool: SetPool,
 }
 
 impl<P> Index<P> for NSW<P> {
@@ -325,10 +364,17 @@ impl<P> Index<P> for NSW<P> {
         P: Point,
     {
         self.ep.map_or_else(Vec::default, |ep| {
-            search(&self.graph, query, ef, ep, Point::distance)
-                .drain_asc()
-                .take(k)
-                .collect()
+            search(
+                &self.graph,
+                query,
+                ef,
+                ep,
+                Point::distance,
+                &self.visited_pool,
+            )
+            .drain_asc()
+            .take(k)
+            .collect()
         })
     }
 }
@@ -348,14 +394,16 @@ mod tests {
     #[test]
     fn test_nsw() {
         let k = 4;
+        let range = 1..20;
         let mut builder = NSWBuilder::new(NSWOptions {
             ef_construction: k,
+            size: range.len(),
             ..NSWOptions::default()
         });
 
-        builder.extend(1..10);
+        builder.extend(range);
 
-        let nsw = builder.build();
+        let nsw = Into::<NSW<_>>::into(builder.build());
         let knns = nsw
             .search(&5, k, k)
             .into_iter()
@@ -368,11 +416,12 @@ mod tests {
     fn test_heuristic() {
         let k = 4;
         let q = 10;
+        let numbers = vec![1, 5, 6, 7, 16, 18];
         let mut builder = NSWBuilder::new(NSWOptions {
             ef_construction: k,
+            size: numbers.len(),
             ..NSWOptions::default()
         });
-        let numbers = vec![1, 5, 6, 7, 16, 18];
         let expected = [7, 16];
 
         builder.extend(numbers.clone());

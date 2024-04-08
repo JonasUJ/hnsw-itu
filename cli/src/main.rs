@@ -10,10 +10,7 @@ use anyhow::{Context, Result};
 use bincode::{deserialize_from, serialize_into};
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File as Hdf5File};
-use hnsw_itu::{
-    Bruteforce, Distance, HNSWBuilder, Index, IndexBuilder, NSWBuilder, NSWOptions, Point, HNSW,
-    NSW,
-};
+use hnsw_itu::{Bruteforce, Distance, HNSWBuilder, HNSWIndex, Index, IndexBuilder, NSWBuilder, NSWIndex, NSWOptions, Point, HNSW, NSW};
 use hnsw_itu_cli::{BufferedDataset, Sketch};
 use ndarray::arr1;
 use serde::{Deserialize, Serialize};
@@ -131,7 +128,8 @@ fn build_index(
         });
 
     let buildtime_start = SystemTime::now();
-    let options = options.into();
+    let mut options = options.into();
+    options.size = Some(options.size.unwrap_or(size));
     info!(
         size,
         ?algorithm,
@@ -356,6 +354,7 @@ struct AlgorithmOptions {
     connections: usize,
     max_connections: usize,
     single_threaded: bool,
+    size: Option<usize>,
 }
 
 #[derive(
@@ -373,12 +372,12 @@ impl Algorithm {
         &self,
         dataset: impl IntoIterator<Item = P>,
         options: impl Into<AlgorithmOptions>,
-    ) -> Indexes<P> {
+    ) -> SerdeIndexes<P> {
         let options = options.into();
         match self {
             Self::Bruteforce => {
                 let bruteforce = dataset.into_iter().collect();
-                Indexes::Bruteforce(bruteforce)
+                SerdeIndexes::Bruteforce(bruteforce)
             }
             Self::Nsw => {
                 let iter = dataset.into_iter();
@@ -386,6 +385,7 @@ impl Algorithm {
                     ef_construction: options.ef_construction,
                     connections: options.connections,
                     max_connections: options.max_connections,
+                    size: options.size.expect("size must be know"),
                 });
 
                 if options.single_threaded {
@@ -394,7 +394,7 @@ impl Algorithm {
                     builder.extend_parallel(iter);
                 }
 
-                Indexes::NSW(builder.build())
+                SerdeIndexes::NSW(builder.build())
             }
             Algorithm::Hnsw => {
                 let iter = dataset.into_iter();
@@ -402,6 +402,7 @@ impl Algorithm {
                     ef_construction: options.ef_construction,
                     connections: options.connections,
                     max_connections: options.max_connections,
+                    size: options.size.expect("size must be know"),
                 });
 
                 if options.single_threaded {
@@ -411,13 +412,37 @@ impl Algorithm {
                     todo!("no multithreading for hnsw construction yet");
                 }
 
-                Indexes::HNSW(builder.build())
+                SerdeIndexes::HNSW(builder.build())
             }
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
+pub enum SerdeIndexes<P> {
+    Bruteforce(Bruteforce<P>),
+    NSW(NSWIndex<P>),
+    HNSW(HNSWIndex<P>),
+}
+
+impl<P> SerdeIndexes<P> {
+    fn size(&self) -> usize {
+        match self {
+            Self::Bruteforce(bruteforce) => bruteforce.size(),
+            Self::NSW(nswindex) => nswindex.size(),
+            Self::HNSW(hnswindex) => hnswindex.size(),
+        }
+    }
+
+    fn prepare(self) -> Indexes<P> {
+        match self {
+            SerdeIndexes::Bruteforce(bruteforce) => Indexes::Bruteforce(bruteforce),
+            SerdeIndexes::NSW(nswindex) => Indexes::NSW(nswindex.into()),
+            SerdeIndexes::HNSW(hnswindex) => Indexes::HNSW(hnswindex.into()),
+        }
+    }
+}
+
 pub enum Indexes<P> {
     Bruteforce(Bruteforce<P>),
     NSW(NSW<P>),
@@ -448,7 +473,7 @@ impl<P> Index<P> for Indexes<P> {
 #[derive(Serialize, Deserialize)]
 struct IndexFile<P> {
     attrs: ResultAttrs,
-    index: Indexes<P>,
+    index: SerdeIndexes<P>,
 }
 
 /// Create index from dataset, query it and generate result file
@@ -510,6 +535,7 @@ impl From<&Query> for AlgorithmOptions {
             ef_construction: value.ef_construction,
             max_connections: value.max_connections,
             single_threaded: value.single_threaded,
+            size: None,
         }
     }
 }
@@ -522,9 +548,10 @@ impl Action for Query {
             write_index(&path, &index_file)?;
         }
 
+        let index = index_file.index.prepare();
         let results = query_index(
             &self.queryfile,
-            &index_file.index,
+            &index,
             &mut index_file.attrs,
             self.k,
             self.ef,
@@ -584,6 +611,7 @@ impl From<&CreateIndex> for AlgorithmOptions {
             ef_construction: value.ef_construction,
             max_connections: value.max_connections,
             single_threaded: value.single_threaded,
+            size: None,
         }
     }
 }
@@ -632,9 +660,10 @@ struct QueryIndex {
 impl Action for QueryIndex {
     fn act(self) -> Result<()> {
         let mut index_file = read_index(&self.indexfile)?;
+        let index = index_file.index.prepare();
         let results = query_index(
             &self.queryfile,
-            &index_file.index,
+            &index,
             &mut index_file.attrs,
             self.k,
             self.ef,
@@ -687,9 +716,10 @@ impl Action for GroundTruth {
             self.start,
             self.len,
         )?;
+        let index = index_file.index.prepare();
         let results = query_index(
             &self.queryfile,
-            &index_file.index,
+            &index,
             &mut index_file.attrs,
             self.k,
             self.k,

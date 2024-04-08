@@ -22,7 +22,7 @@ impl<P> Bruteforce<P> {
     }
 }
 
-impl<P> IndexBuilder<P> for Bruteforce<P> {
+impl<P> IndexBuilder<P, Bruteforce<P>> for Bruteforce<P> {
     type Index = Self;
 
     fn add(&mut self, point: P) {

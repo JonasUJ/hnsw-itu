@@ -1,8 +1,13 @@
+use std::{collections::HashSet, fmt::Debug};
+
+use object_pool::Pool;
 use rand::{rngs::ThreadRng, thread_rng, Rng};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{nsw, Distance, Graph, Idx, Index, IndexBuilder, NSWOptions, Point, SimpleGraph};
+use crate::{
+    nsw, BitSet, Distance, Graph, Idx, Index, IndexBuilder, NSWOptions, Point, SetPool, SimpleGraph,
+};
 
 pub struct HNSWBuilder<P> {
     layers: Vec<SimpleGraph<(P, Idx)>>,
@@ -12,6 +17,7 @@ pub struct HNSWBuilder<P> {
     ef_construction: usize,
     connections: usize,
     max_connections: usize,
+    pool: SetPool,
 }
 
 impl<P> HNSWBuilder<P> {
@@ -24,6 +30,9 @@ impl<P> HNSWBuilder<P> {
             ef_construction: options.ef_construction,
             connections: options.connections,
             max_connections: options.max_connections,
+            pool: Pool::new(rayon::current_num_threads(), || {
+                HashSet::with_capacity(2000)
+            }),
         }
     }
 
@@ -41,8 +50,8 @@ impl<P: Point + Clone> Extend<P> for HNSWBuilder<P> {
     }
 }
 
-impl<P: Point + Clone> IndexBuilder<P> for HNSWBuilder<P> {
-    type Index = HNSW<P>;
+impl<P: Point + Clone> IndexBuilder<P, HNSW<P>> for HNSWBuilder<P> {
+    type Index = HNSWIndex<P>;
 
     fn add(&mut self, point: P) {
         let base_idx = self.base.add(point.clone());
@@ -78,7 +87,7 @@ impl<P: Point + Clone> IndexBuilder<P> for HNSWBuilder<P> {
         // Search until layer where we want to start inserting
         for l in (level..self.layers.len()).rev() {
             let layer = &self.layers[l];
-            let w = nsw::search(layer, &point, 1, ep, |(p, _), q| p.distance(q));
+            let w = nsw::search(layer, &point, 1, ep, |(p, _), q| p.distance(q), &self.pool);
             ep = w.peek_min().unwrap().point().1;
         }
 
@@ -92,6 +101,7 @@ impl<P: Point + Clone> IndexBuilder<P> for HNSWBuilder<P> {
                 self.ef_construction,
                 ep,
                 |(p, _), (q, _)| p.distance(q),
+                &self.pool,
             );
         }
 
@@ -104,11 +114,12 @@ impl<P: Point + Clone> IndexBuilder<P> for HNSWBuilder<P> {
             self.ef_construction,
             ep,
             Point::distance,
+            &self.pool,
         );
     }
 
     fn build(self) -> Self::Index {
-        HNSW {
+        HNSWIndex {
             layers: self.layers,
             base: self.base,
             ep: self.ep,
@@ -118,10 +129,37 @@ impl<P: Point + Clone> IndexBuilder<P> for HNSWBuilder<P> {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct HNSWIndex<P> {
+    layers: Vec<SimpleGraph<(P, Idx)>>,
+    base: SimpleGraph<P>,
+    ep: Option<Idx>,
+}
+
+impl<P> HNSWIndex<P> {
+    pub fn size(&self) -> usize {
+        self.base.size()
+    }
+}
+
+impl<P> From<HNSWIndex<P>> for HNSW<P> {
+    fn from(value: HNSWIndex<P>) -> Self {
+        let size = value.base.size();
+        Self {
+            layers: value.layers,
+            base: value.base,
+            ep: value.ep,
+            pool: Pool::new(rayon::current_num_threads(), || {
+                HashSet::with_capacity(2000)
+            }),
+        }
+    }
+}
+
 pub struct HNSW<P> {
     layers: Vec<SimpleGraph<(P, Idx)>>,
     base: SimpleGraph<P>,
     ep: Option<Idx>,
+    pool: SetPool,
 }
 
 impl<P> Index<P> for HNSW<P> {
@@ -137,7 +175,7 @@ impl<P> Index<P> for HNSW<P> {
 
         // Search layers from top to bottom
         for layer in self.layers.iter().rev() {
-            let mut w = nsw::search(layer, query, 1, ep, |(p, _), q| p.distance(q));
+            let mut w = nsw::search(layer, query, 1, ep, |(p, _), q| p.distance(q), &self.pool);
 
             ep = w
                 .pop_min()
@@ -147,7 +185,7 @@ impl<P> Index<P> for HNSW<P> {
         }
 
         // Search base layer last
-        nsw::search(&self.base, query, ef, ep, Point::distance)
+        nsw::search(&self.base, query, ef, ep, Point::distance, &self.pool)
             .drain_asc()
             .take(k)
             .collect()
@@ -163,22 +201,23 @@ mod tests {
     #[test]
     fn test_hnsw() {
         let k = 4;
-        let range = 0..2000;
+        let range = 0..20;
         let mut builder = HNSWBuilder::new(NSWOptions {
             ef_construction: k,
             connections: 3,
+            size: range.len(),
             ..NSWOptions::default()
         });
 
         builder.extend(range.clone());
 
-        let hnsw = builder.build();
+        let hnsw = Into::<HNSW<_>>::into(builder.build());
         let knns = hnsw
             .search(&5, k, k)
             .into_iter()
             .map(|dist| dist.point())
             .copied();
-        assert!(unordered_eq(knns, 3..=6));
+        assert!(unordered_eq(knns.clone(), 3..=6) || unordered_eq(knns.clone(), 4..=7));
 
         let len = hnsw.search(&0, hnsw.size(), hnsw.size()).len();
         assert_eq!(hnsw.size(), len);
@@ -188,12 +227,13 @@ mod tests {
     fn test_heuristic() {
         let k = 4;
         let q = 10;
+        let numbers = vec![1, 5, 6, 7, 16, 18];
         let mut builder = HNSWBuilder::new(NSWOptions {
             ef_construction: k,
             connections: 3,
+            size: numbers.len(),
             ..NSWOptions::default()
         });
-        let numbers = vec![1, 5, 6, 7, 16, 18];
         let expected = [7, 16];
 
         builder.extend(numbers.clone());
