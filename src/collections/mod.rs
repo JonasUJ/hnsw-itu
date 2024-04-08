@@ -1,11 +1,9 @@
 pub mod bitset;
-pub mod pool;
 pub mod simplegraph;
 
 use std::collections::BinaryHeap;
 
 pub use crate::bitset::*;
-pub use crate::pool::*;
 pub use crate::simplegraph::*;
 
 pub type Idx = usize;
@@ -89,12 +87,8 @@ where
     fn insert(&mut self, t: T);
 
     fn contains(&self, t: T) -> bool;
-}
 
-pub trait Pool<T> {
-    fn get(&mut self, generator: impl Fn() -> T) -> T;
-
-    fn release(&mut self, t: T);
+    fn len(&self) -> usize;
 }
 
 #[cfg(test)]

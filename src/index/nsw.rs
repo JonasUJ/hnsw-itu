@@ -1,13 +1,11 @@
+use object_pool::Pool;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{BitSet, Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, SimpleGraph, VisitedPool};
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashSet},
-};
+use crate::{BitSet, Distance, Graph, Idx, Index, IndexBuilder, MinK, Point, Reset, Set, SimpleGraph};
+use std::{cmp::Reverse, collections::BinaryHeap};
 
 fn select_neighbors<'a, P: Point>(
     mut candidates: BinaryHeap<Reverse<Distance<'a, P>>>,
@@ -37,8 +35,9 @@ fn search_select_neighbors<P: Point>(
     m: usize,
     ef: usize,
     ep: Idx,
+    pool: &Pool<BitSet>,
 ) -> Vec<usize> {
-    let w = search(graph, point, ef, ep)
+    let w = search(graph, point, ef, ep, pool)
         .into_iter()
         .map(Reverse)
         .collect::<BinaryHeap<_>>();
@@ -56,10 +55,11 @@ fn insert_point<P: Point>(
     m_max: usize,
     ef: usize,
     ep: Idx,
+    pool: &mut Pool<BitSet>,
 ) {
     let point_idx = graph.add(point);
 
-    insert_idx(graph, point_idx, m, m_max, ef, ep)
+    insert_idx(graph, point_idx, m, m_max, ef, ep, pool)
 }
 
 fn insert_idx<P: Point>(
@@ -69,9 +69,10 @@ fn insert_idx<P: Point>(
     m_max: usize,
     ef: usize,
     ep: Idx,
+    pool: &mut Pool<BitSet>,
 ) {
     let point = graph.get(point_idx).unwrap();
-    let neighbors = search_select_neighbors(graph, point, m, ef, ep);
+    let neighbors = search_select_neighbors(graph, point, m, ef, ep, pool);
 
     insert_neighbors(graph, point_idx, neighbors, m_max);
 }
@@ -118,12 +119,16 @@ fn search<'a, P: Point>(
     query: &P,
     ef: usize,
     ep: Idx,
+    pool: &Pool<BitSet>,
 ) -> Vec<Distance<'a, P>> {
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
     let dist = Distance::new(ep_elem.distance(query), ep, ep_elem);
 
-    let mut visited = HashSet::<Idx>::with_capacity(2048);
-    visited.insert(ep);
+    //let mut visited = HashSet::<Idx>::with_capacity(2048);
+    //visited.insert(ep);
+    let mut visited = pool.try_pull().unwrap();
+    visited.reset();
+
     let mut w = BinaryHeap::from_iter([dist.clone()]);
     let mut cands = BinaryHeap::from_iter([Reverse(dist)]);
 
@@ -136,7 +141,7 @@ fn search<'a, P: Point>(
         }
 
         for e in graph.neighborhood(c.key()) {
-            if visited.contains(e) {
+            if visited.contains(*e) {
                 continue;
             }
 
@@ -181,14 +186,13 @@ impl Default for NSWOptions {
     }
 }
 
-#[derive(Debug)]
 pub struct NSWBuilder<P> {
     graph: SimpleGraph<P>,
     ep: Option<Idx>,
     ef_construction: usize,
     connections: usize,
     max_connections: usize,
-    visited_pool: VisitedPool<BitSet>,
+    visited_pool: Pool<BitSet>,
 }
 
 impl<P> NSWBuilder<P> {
@@ -199,7 +203,7 @@ impl<P> NSWBuilder<P> {
             ef_construction: options.ef_construction,
             connections: options.connections,
             max_connections: options.max_connections,
-            visited_pool: VisitedPool::new(0, || BitSet::new(options.size)),
+            visited_pool: Pool::new(rayon::current_num_threads(), || BitSet::new(options.size)),
         }
     }
 }
@@ -217,7 +221,7 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
         // There needs to be some amount of nodes already to not generate a truly horrible graph.
         self.extend(iter.by_ref().take(0.max(50_000 - self.graph.size())));
 
-        let chunk_size = rayon::max_num_threads();
+        let chunk_size = rayon::current_num_threads();
 
         loop {
             let chunk = iter.by_ref().take(chunk_size).collect::<Vec<_>>();
@@ -240,6 +244,7 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
                         self.connections,
                         self.ef_construction,
                         self.ep.unwrap(),
+                        &self.visited_pool,
                     );
 
                     (point_idx, neighbors)
@@ -260,8 +265,8 @@ impl<P: Point> Extend<P> for NSWBuilder<P> {
     }
 }
 
-impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
-    type Index = NSW<P>;
+impl<P: Point> IndexBuilder<P, NSW<P>> for NSWBuilder<P> {
+    type Index = NSWIndex<P>;
 
     fn add(&mut self, point: P) {
         match self.ep {
@@ -272,6 +277,7 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
                 self.max_connections,
                 self.ef_construction,
                 ep,
+                &mut self.visited_pool,
             ),
             None => {
                 let ep = self.graph.add(point);
@@ -283,24 +289,47 @@ impl<P: Point> IndexBuilder<P> for NSWBuilder<P> {
                     self.max_connections,
                     self.ef_construction,
                     ep,
+                    &mut self.visited_pool,
                 )
             }
         };
     }
 
     fn build(self) -> Self::Index {
-        NSW {
+        NSWIndex {
             graph: self.graph,
             ep: self.ep,
         }
     }
 }
 
-#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct NSWIndex<P> {
+    graph: SimpleGraph<P>,
+    ep: Option<Idx>,
+}
+
+impl<P> NSWIndex<P> {
+    pub fn size(&self) -> usize {
+        self.graph.size()
+    }
+}
+
+impl<P> From<NSWIndex<P>> for NSW<P> {
+    fn from(value: NSWIndex<P>) -> Self {
+        let size = value.graph.size();
+        NSW {
+            graph: value.graph,
+            ep: value.ep,
+            visited_pool: Pool::new(rayon::current_num_threads(), || BitSet::new(size)),
+        }
+    }
+}
+
 pub struct NSW<P> {
     graph: SimpleGraph<P>,
     ep: Option<Idx>,
+    visited_pool: Pool<BitSet>,
 }
 
 impl<P> Index<P> for NSW<P> {
@@ -313,7 +342,9 @@ impl<P> Index<P> for NSW<P> {
         P: Point,
     {
         self.ep.map_or_else(Vec::default, |ep| {
-            search(&self.graph, query, ef, ep).into_iter().min_k(k)
+            search(&self.graph, query, ef, ep, &self.visited_pool)
+                .into_iter()
+                .min_k(k)
         })
     }
 }
@@ -340,7 +371,7 @@ mod tests {
 
         builder.extend(1..10);
 
-        let nsw = builder.build();
+        let nsw = Into::<NSW<_>>::into(builder.build());
         let knns = nsw
             .search(&5, k, k)
             .into_iter()

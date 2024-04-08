@@ -1,6 +1,9 @@
 use crate::{Idx, Reset, Set};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BitSet {
     bits: Vec<usize>,
 }
@@ -13,24 +16,25 @@ impl BitSet {
     }
 }
 
-impl<T> Set<T> for BitSet
-where
-    T: Into<usize> + Clone,
-{
-    fn insert(&mut self, t: T) {
-        let s = std::mem::size_of::<usize>();
-        self.bits[Into::<usize>::into(t.clone()) / s] |= 1 << (Into::<usize>::into(t.clone()) % s);
+impl Set<Idx> for BitSet {
+    fn insert(&mut self, t: Idx) {
+        let s = std::mem::size_of::<Idx>();
+        self.bits[t / s] |= 1 << (t % s);
     }
 
-    fn contains(&self, t: T) -> bool {
-        let s = std::mem::size_of::<usize>();
-        self.bits[Into::<usize>::into(t.clone()) / s] & (1 << (Into::<usize>::into(t.clone()) % s))
-            != 0
+    fn contains(&self, t: Idx) -> bool {
+        let s = std::mem::size_of::<Idx>();
+        self.bits[t / s] & (1 << (t % s)) != 0
+    }
+
+    fn len(&self) -> usize {
+        self.bits
+            .iter()
+            .fold(0, |a, &i| a + i.count_ones() as usize)
     }
 }
 
-impl Reset for BitSet
-{
+impl Reset for BitSet {
     fn reset(&mut self) {
         self.bits = self.bits.iter().map(|_| 0).collect();
     }
@@ -39,7 +43,7 @@ impl Reset for BitSet
 impl Clone for BitSet {
     fn clone(&self) -> Self {
         Self {
-            bits: self.bits.clone()
+            bits: self.bits.clone(),
         }
     }
 }
