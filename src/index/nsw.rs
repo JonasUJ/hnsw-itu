@@ -235,7 +235,7 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
         // There needs to be some amount of nodes already to not generate a truly horrible graph.
         self.extend(iter.by_ref().take(0.max(50_000 - self.graph.size())));
 
-        let chunk_size = rayon::current_num_threads();
+        let chunk_size = rayon::current_num_threads() * 32;
 
         loop {
             let chunk = iter.by_ref().take(chunk_size).collect::<Vec<_>>();

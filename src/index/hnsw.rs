@@ -2,6 +2,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use object_pool::Pool;
 use rand::{rngs::ThreadRng, thread_rng, Rng};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +40,144 @@ impl<P> HNSWBuilder<P> {
     fn random_level(&mut self) -> usize {
         let val: f32 = self.rng.gen();
         (-val.ln() * (1.0 / (self.connections as f32).ln())) as usize
+    }
+}
+
+impl<P: Point + Clone + Send + Sync> HNSWBuilder<P> {
+    pub fn extend_parallel<T: IntoIterator<Item = P>>(&mut self, iter: T) {
+        let mut iter = iter.into_iter();
+
+        if self.ep.is_none() {
+            if let Some(point) = iter.next() {
+                self.add(point);
+            }
+        }
+
+        // There needs to be some amount of nodes already to not generate a truly horrible graph.
+        self.extend(iter.by_ref().take(0.max(50_000 - self.base.size())));
+
+        let chunk_size = rayon::current_num_threads() * 32;
+
+        loop {
+            let chunk = iter.by_ref().take(chunk_size).collect::<Vec<_>>();
+
+            if chunk.is_empty() {
+                break;
+            }
+
+            let level = self.random_level();
+
+            let mut new_ep = false;
+            while self.layers.len() < level {
+                self.layers.push(Default::default());
+                new_ep = true;
+            }
+
+            // Add points to all layers (not insert) and remember their indices for insert later
+            let chunk_idxs = chunk
+                .into_iter()
+                .map(|point| {
+                    let base_idx = self.base.add(point.clone());
+                    let idxs = self.layers[..level]
+                        .iter_mut()
+                        .fold(vec![base_idx], |mut v, l| {
+                            let idx = *v.last().unwrap();
+                            v.push(l.add((point.clone(), idx)));
+                            v
+                        });
+                    (point, idxs)
+                })
+                .collect::<Vec<_>>();
+
+            if new_ep {
+                let idx = *chunk_idxs.first().unwrap().1.last().unwrap();
+                self.ep = Some(idx);
+            }
+
+            let chunk_idxs = chunk_idxs
+                .into_par_iter()
+                .map(|(point, idxs)| {
+                    let mut ep = self.ep.unwrap();
+
+                    // Search until layer where we want to start inserting
+                    for l in (level..self.layers.len()).rev() {
+                        let layer = &self.layers[l];
+                        let w = nsw::search(
+                            layer,
+                            &point,
+                            1,
+                            ep,
+                            |(p, _), q| p.distance(q),
+                            &self.pool,
+                        );
+                        ep = w.peek_min().unwrap().point().1;
+                    }
+
+                    (point, idxs, ep)
+                })
+                .collect::<Vec<_>>();
+
+            // Insert in all layers below here
+            for l in (0..level).rev() {
+                let chunk_neighbors = chunk_idxs
+                    .clone()
+                    .into_par_iter()
+                    .map(|(point, idxs, ep)| {
+                        let neighbors = nsw::search_select_neighbors(
+                            &self.layers[l],
+                            // Idx can be default because it's unused in distance_fn
+                            &(point, Idx::default()),
+                            self.connections,
+                            self.ef_construction,
+                            ep,
+                            &|(p, _), (q, _)| p.distance(q),
+                            &self.pool,
+                        );
+
+                        (neighbors, idxs)
+                    })
+                    .collect::<Vec<_>>();
+
+                for (neighbors, idxs) in chunk_neighbors {
+                    nsw::insert_neighbors(
+                        &mut self.layers[l],
+                        idxs[l + 1],
+                        &neighbors,
+                        self.max_connections,
+                        |(p, _), (q, _)| p.distance(q),
+                    );
+                }
+            }
+
+            // Search base layer
+            let chunk_neighbors = chunk_idxs
+                .into_par_iter()
+                .map(|(point, idxs, ep)| {
+                    let neighbors = nsw::search_select_neighbors(
+                        &self.base,
+                        &point,
+                        self.connections,
+                        self.ef_construction,
+                        ep,
+                        &Point::distance,
+                        &self.pool,
+                    );
+
+                    (neighbors, idxs[0])
+                })
+                .collect::<Vec<_>>();
+
+            // Insert in base layer
+            for (neighbors, idx) in chunk_neighbors {
+                nsw::insert_neighbors(
+                    &mut self.base,
+                    idx,
+                    &neighbors,
+                    self.max_connections,
+                    Point::distance,
+                );
+            }
+        }
     }
 }
 

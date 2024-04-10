@@ -408,8 +408,7 @@ impl Algorithm {
                 if options.single_threaded {
                     builder.extend(iter)
                 } else {
-                    //builder.extend_parallel(iter);
-                    todo!("no multithreading for hnsw construction yet");
+                    builder.extend_parallel(iter);
                 }
 
                 SerdeIndexes::HNSW(builder.build())
