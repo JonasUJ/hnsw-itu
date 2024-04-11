@@ -148,7 +148,7 @@ fn build_index(
         format_size,
         size,
         algo: algorithm,
-        buildtime: buildtime_total.as_secs(),
+        buildtime: buildtime_total.as_secs_f64(),
         ..Default::default()
     };
 
@@ -197,7 +197,7 @@ fn query_index<'a>(
         querytime_total, querytime_per_element
     );
 
-    attrs.querytime = querytime_total.as_secs();
+    attrs.querytime = querytime_total.as_secs_f64();
 
     Ok(results)
 }
@@ -295,8 +295,8 @@ struct ResultAttrs {
     data: String,
     size: usize,
     algo: Algorithm,
-    buildtime: u64,
-    querytime: u64,
+    buildtime: f64,
+    querytime: f64,
     params: String,
 }
 
