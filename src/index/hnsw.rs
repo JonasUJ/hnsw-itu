@@ -7,7 +7,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    nsw, BitSet, Distance, Graph, Idx, Index, IndexBuilder, NSWOptions, Point, SetPool, SimpleGraph,
+    nsw, Distance, Graph, Idx, Index, IndexBuilder, NSWOptions, Point, SetPool, SimpleGraph,
 };
 
 pub struct HNSWBuilder<P> {
@@ -282,7 +282,7 @@ impl<P> HNSWIndex<P> {
 
 impl<P> From<HNSWIndex<P>> for HNSW<P> {
     fn from(value: HNSWIndex<P>) -> Self {
-        let size = value.base.size();
+        let _size = value.base.size();
         Self {
             layers: value.layers,
             base: value.base,

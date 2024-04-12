@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{BitSet, Distance, Graph, Idx, Index, IndexBuilder, Point, Reset, Set, SimpleGraph};
+use crate::{Distance, Graph, Idx, Index, IndexBuilder, Point, SimpleGraph};
 use min_max_heap::MinMaxHeap;
 use object_pool::Pool;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -339,7 +339,7 @@ impl<P> NSWIndex<P> {
 
 impl<P> From<NSWIndex<P>> for NSW<P> {
     fn from(value: NSWIndex<P>) -> Self {
-        let size = value.graph.size();
+        let _size = value.graph.size();
         NSW {
             graph: value.graph,
             ep: value.ep,
