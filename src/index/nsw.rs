@@ -186,7 +186,7 @@ pub(crate) fn search<'a, P, Q>(
     }
 
     #[cfg(feature = "tracing")]
-    trace!(visited = visited.len(), "visited");
+    trace!(visited = visited.len(), size = graph.size(), "visited");
 
     w
 }

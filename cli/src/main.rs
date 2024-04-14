@@ -70,28 +70,39 @@ fn main() -> Result<()> {
 
 #[cfg(feature = "instrument")]
 fn instrumentation(storage: SharedStorage) {
+    use std::collections::HashMap;
+
     let storage = storage.lock();
     let visited_predicate = level(Level::TRACE) & message(eq("visited"));
 
-    let mut counts = storage
-        .all_events()
-        .filter(|e| visited_predicate.eval(e))
-        .map(|e| e["visited"].as_uint().unwrap() as u64)
-        .collect::<Vec<_>>();
-    counts.sort();
-    let len = counts.len();
+    let mut map: HashMap<u64, Vec<u64>> = HashMap::new();
+    for e in storage.all_events().filter(|e| visited_predicate.eval(e)) {
+        let size = e["size"].as_uint().unwrap() as u64;
+        let visited = e["visited"].as_uint().unwrap() as u64;
+        map.entry(size).or_default().push(visited);
+    }
 
-    println!(
-        "search (nodes visited)\ntotal {}\nmean  {}\nmax   {}\np25   {}\np50   {}\np75   {}\np90   {}\np99   {}",
-        counts.iter().sum::<u64>(),
-        counts.iter().sum::<u64>() / len as u64,
-        counts.last().unwrap(),
-        counts[len / 4],
-        counts[len / 2],
-        counts[len - len / 4],
-        counts[len - len / 9],
-        counts[len - len / 99],
-    );
+    for (size, mut counts) in map {
+        counts.sort();
+        let len = counts.len();
+
+        println!(
+            "search (nodes visited) on graph with size {}\ntotal {}\nmean  {}\nmax   {}\np25   {}\np50   {}\np75   {}\np90   {}\np99   {}",
+            size,
+            counts.iter().sum::<u64>(),
+            counts.iter().sum::<u64>() / len as u64,
+            counts.last().unwrap(),
+            counts[len / 4],
+            counts[len / 2],
+            counts[len - len / 4],
+            counts[len - len / 9],
+            counts[len - len / 99],
+        );
+    }
+
+    let distance_predicate = level(Level::TRACE) & message(eq("distance"));
+    let distance_count = storage.all_events().filter(|e| distance_predicate.eval(e)).count();
+    println!("distance called {distance_count} times");
 }
 
 #[instrument(skip_all)]

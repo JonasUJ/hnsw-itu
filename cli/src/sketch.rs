@@ -1,6 +1,8 @@
 use hnsw_itu::Point;
 use ndarray::{arr1, Array1};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "instrument")]
+use tracing::trace;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Sketch {
@@ -16,6 +18,9 @@ impl Sketch {
 impl Point for Sketch {
     #[inline(always)]
     fn distance(&self, other: &Self) -> usize {
+        #[cfg(feature = "instrument")]
+        trace!("distance");
+
         self.data
             .iter()
             .zip(other.data.iter())
