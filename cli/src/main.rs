@@ -1,6 +1,7 @@
 use std::{
     fs::File,
     io::{BufReader, BufWriter},
+    iter::repeat,
     path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
@@ -10,7 +11,10 @@ use anyhow::{Context, Result};
 use bincode::{deserialize_from, serialize_into};
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File as Hdf5File};
-use hnsw_itu::{Bruteforce, Distance, HNSWBuilder, HNSWIndex, Index, IndexBuilder, NSWBuilder, NSWIndex, NSWOptions, Point, HNSW, NSW};
+use hnsw_itu::{
+    Bruteforce, Distance, HNSWBuilder, HNSWIndex, Index, IndexBuilder, NSWBuilder, NSWIndex,
+    NSWOptions, Point, HNSW, NSW,
+};
 use hnsw_itu_cli::{BufferedDataset, Sketch};
 use ndarray::arr1;
 use serde::{Deserialize, Serialize};
@@ -127,7 +131,6 @@ fn build_index(
             }
         });
 
-    let buildtime_start = SystemTime::now();
     let mut options = options.into();
     options.size = Some(options.size.unwrap_or(size));
     info!(
@@ -136,6 +139,8 @@ fn build_index(
         single_threaded = options.single_threaded,
         "Building index"
     );
+    let buildtime_start = SystemTime::now();
+
     let index = algorithm.create(dataset_iter, options);
     let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
     let buildtime_per_element = buildtime_total / size as u32;
@@ -175,8 +180,8 @@ fn query_index<'a>(
     let queries = BufferedDataset::open(path, "hamming")?;
     let queries_size: u32 = queries.size().try_into().unwrap();
 
-    let querytime_start = SystemTime::now();
     info!(k, ef, single_threaded, "Start querying");
+    let querytime_start = SystemTime::now();
     let results = if single_threaded {
         queries
             .into_iter()
@@ -185,7 +190,8 @@ fn query_index<'a>(
                 if i == 160 {
                     println!("1");
                 }
-                index.search(&q, k, ef)})
+                index.search(&q, k, ef)
+            })
             .collect()
     } else {
         index.knns(queries, k, ef)
@@ -461,11 +467,22 @@ impl<P> Index<P> for Indexes<P> {
     where
         P: Point,
     {
-        match self {
+        let mut res = match self {
             Self::Bruteforce(bruteforce) => bruteforce.search(query, k, ef),
             Self::NSW(nsw) => nsw.search(query, k, ef),
             Self::HNSW(hnsw) => hnsw.search(query, k, ef),
+        };
+
+        if res.len() < k {
+            warn!(
+                search = res.len(),
+                k, "search returned fewer than k elements"
+            );
+            let fst = res.first().unwrap().clone();
+            res.extend(repeat(fst).take(k - res.len()));
         }
+
+        res
     }
 }
 
@@ -499,23 +516,23 @@ struct Query {
     k: usize,
 
     /// Beamwidth during search
-    #[arg(short = 'e', default_value_t = 48)]
+    #[arg(short = 'e', default_value_t = 96)]
     ef: usize,
 
     /// Beamwidth during index construction
-    #[arg(short = 'c', default_value_t = 48)]
+    #[arg(short = 'c', default_value_t = 96)]
     ef_construction: usize,
 
     /// Desired number of edges for each node
-    #[arg(short = 'm', default_value_t = 48)]
+    #[arg(short = 'm', default_value_t = 24)]
     connections: usize,
 
     /// Max number of edges for each node
-    #[arg(short = 'M', default_value_t = 96)]
+    #[arg(short = 'M', default_value_t = 256)]
     max_connections: usize,
 
     /// What algorithm to use for index construction
-    #[arg(short, long, value_enum, default_value_t = Algorithm::Nsw)]
+    #[arg(short, long, value_enum, default_value_t = Algorithm::Hnsw)]
     algorithm: Algorithm,
 
     /// Put nearest neighbors in sorted (ascending) order
@@ -575,15 +592,15 @@ struct CreateIndex {
     outfile: String,
 
     /// Beamwidth during index construction
-    #[arg(short = 'c', default_value_t = 48)]
+    #[arg(short = 'c', default_value_t = 96)]
     ef_construction: usize,
 
     /// Desired number of edges for each node
-    #[arg(short = 'm', default_value_t = 48)]
+    #[arg(short = 'm', default_value_t = 24)]
     connections: usize,
 
     /// Max number of edges for each node
-    #[arg(short = 'M', default_value_t = 96)]
+    #[arg(short = 'M', default_value_t = 256)]
     max_connections: usize,
 
     /// At what row in the datafile to start indexing
@@ -595,7 +612,7 @@ struct CreateIndex {
     len: Option<usize>,
 
     /// What algorithm to use for index construction
-    #[arg(short, long, value_enum, default_value_t = Algorithm::Nsw)]
+    #[arg(short, long, value_enum, default_value_t = Algorithm::Hnsw)]
     algorithm: Algorithm,
 
     /// Build index on a single thread. Doing so can result in better indexes.
@@ -644,7 +661,7 @@ struct QueryIndex {
     k: usize,
 
     /// Beamwidth during search
-    #[arg(short = 'e', default_value_t = 48)]
+    #[arg(short = 'e', default_value_t = 96)]
     ef: usize,
 
     /// Put nearest neighbors in sorted (ascending) order

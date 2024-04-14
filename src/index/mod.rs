@@ -1,17 +1,20 @@
 pub mod bruteforce;
-pub mod nsw;
 pub mod hnsw;
+pub mod nsw;
 use std::cmp::Ordering;
 
 pub use bruteforce::*;
-pub use nsw::*;
 pub use hnsw::*;
+pub use nsw::*;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 
 #[cfg(feature = "tracing")]
 use tracing::{debug, instrument};
 
-pub trait IndexBuilder<P, I> where I: Index<P> {
+pub trait IndexBuilder<P, I>
+where
+    I: Index<P>,
+{
     type Index: Into<I>;
 
     fn add(&mut self, point: P);

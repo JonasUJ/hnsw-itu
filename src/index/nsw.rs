@@ -11,6 +11,7 @@ use tracing::trace;
 
 pub type SetPool = Pool<HashSet<Idx>>;
 
+// Heuristic
 pub(crate) fn select_neighbors<'a, P>(
     mut candidates: MinMaxHeap<Distance<'a, P>>,
     m: usize,
@@ -33,6 +34,15 @@ pub(crate) fn select_neighbors<'a, P>(
 
     return_list
 }
+
+// Simple heuristic
+//pub(crate) fn select_neighbors<'a, P>(
+//    mut candidates: MinMaxHeap<Distance<'a, P>>,
+//    m: usize,
+//    distance_fn: impl Fn(&P, &P) -> usize,
+//) -> Vec<Distance<'a, P>> {
+//    candidates.drain_asc().take(m).collect()
+//}
 
 pub(crate) fn search_select_neighbors<P>(
     graph: &impl Graph<P>,
@@ -116,12 +126,13 @@ pub(crate) fn insert_neighbors<P>(
 
         let e_new_conn = select_neighbors(candidates, m_max, &distance_fn);
 
-        let a = e_new_conn
+        let keys = e_new_conn
             .into_iter()
             .map(|dist| dist.key())
             .collect::<Vec<_>>();
         graph.clear_edges(e);
-        graph.add_neighbors(e, a.into_iter());
+        graph.add_neighbors(e, keys.into_iter());
+        graph.add_edge(point_idx, e); // TODO: Needed?
     }
 }
 
@@ -136,8 +147,6 @@ pub(crate) fn search<'a, P, Q>(
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
     let dist = Distance::new(distance_fn(ep_elem, query), ep, ep_elem);
 
-    //let mut visited = HashSet::<Idx>::with_capacity(2048);
-    //visited.insert(ep);
     let mut visited = pool.try_pull().unwrap();
     visited.clear();
     visited.insert(ep);
@@ -217,7 +226,9 @@ impl<P> NSWBuilder<P> {
             ef_construction: options.ef_construction,
             connections: options.connections,
             max_connections: options.max_connections,
-            visited_pool: Pool::new(rayon::current_num_threads(), || HashSet::with_capacity(2000)),
+            visited_pool: Pool::new(rayon::current_num_threads(), || {
+                HashSet::with_capacity(2000)
+            }),
         }
     }
 }
@@ -343,7 +354,9 @@ impl<P> From<NSWIndex<P>> for NSW<P> {
         NSW {
             graph: value.graph,
             ep: value.ep,
-            visited_pool: Pool::new(rayon::current_num_threads(), || HashSet::with_capacity(2000)),
+            visited_pool: Pool::new(rayon::current_num_threads(), || {
+                HashSet::with_capacity(2000)
+            }),
         }
     }
 }
