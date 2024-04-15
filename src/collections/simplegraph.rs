@@ -14,6 +14,16 @@ pub struct SimpleGraph<T> {
 }
 
 impl<T> SimpleGraph<T> {
+    pub fn nodes(&self) -> &Vec<T> {
+        &self.nodes
+    }
+
+    pub fn adj_lists(&self) -> &Vec<HashSet<Idx>> {
+        &self.adj_lists
+    }
+}
+
+impl<T> SimpleGraph<T> {
     pub fn new() -> Self {
         Self::default()
     }

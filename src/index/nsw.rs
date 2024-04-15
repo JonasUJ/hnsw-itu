@@ -367,6 +367,12 @@ pub struct NSW<P> {
     visited_pool: SetPool,
 }
 
+impl<P> NSW<P> {
+    pub fn graph(&self) -> &SimpleGraph<P> {
+        &self.graph
+    }
+}
+
 impl<P> Index<P> for NSW<P> {
     fn size(&self) -> usize {
         self.graph.size()

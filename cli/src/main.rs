@@ -12,8 +12,7 @@ use bincode::{deserialize_from, serialize_into};
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File as Hdf5File};
 use hnsw_itu::{
-    Bruteforce, Distance, HNSWBuilder, HNSWIndex, Index, IndexBuilder, NSWBuilder, NSWIndex,
-    NSWOptions, Point, HNSW, NSW,
+    Bruteforce, Distance, Graph, HNSWBuilder, HNSWIndex, Index, IndexBuilder, NSWBuilder, NSWIndex, NSWOptions, Point, SimpleGraph, HNSW, NSW
 };
 use hnsw_itu_cli::{BufferedDataset, Sketch};
 use ndarray::arr1;
@@ -101,7 +100,10 @@ fn instrumentation(storage: SharedStorage) {
     }
 
     let distance_predicate = level(Level::TRACE) & message(eq("distance"));
-    let distance_count = storage.all_events().filter(|e| distance_predicate.eval(e)).count();
+    let distance_count = storage
+        .all_events()
+        .filter(|e| distance_predicate.eval(e))
+        .count();
     println!("distance called {distance_count} times");
 }
 
@@ -200,13 +202,7 @@ fn query_index<'a>(
     let results = if single_threaded {
         queries
             .into_iter()
-            .enumerate()
-            .map(|(i, q)| {
-                if i == 160 {
-                    println!("1");
-                }
-                index.search(&q, k, ef)
-            })
+            .map(|q| index.search(&q, k, ef))
             .collect()
     } else {
         index.knns(queries, k, ef)
@@ -310,7 +306,7 @@ fn write_result(
     Ok(())
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct ResultAttrs {
     format_size: bool,
     data: String,
@@ -356,6 +352,7 @@ enum Commands {
     Index(CreateIndex),
     QueryIndex(QueryIndex),
     GroundTruth(GroundTruth),
+    Inspect(Inspect),
 }
 
 impl Commands {
@@ -365,6 +362,7 @@ impl Commands {
             Self::Index(a) => a.act(),
             Self::QueryIndex(a) => a.act(),
             Self::GroundTruth(a) => a.act(),
+            Self::Inspect(a) => a.act(),
         }
     }
 }
@@ -774,6 +772,66 @@ impl Action for GroundTruth {
 
             knns.write_row(arr1(&nn), i)?;
             dists.write_row(arr1(&dist), i)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Read information from index
+#[derive(Args)]
+struct Inspect {
+    /// Index to read
+    indexfile: PathBuf,
+}
+
+impl Action for Inspect {
+    fn act(self) -> Result<()> {
+        let index_file = read_index(&self.indexfile)?;
+        let index = index_file.index.prepare();
+
+        println!("{:?}", index_file.attrs);
+
+        fn print_layer<T>(name: String, layer: &SimpleGraph<T>) {
+            let node_count = layer.nodes().len();
+            let mut connections = layer
+                .adj_lists()
+                .into_iter()
+                .map(|l| l.len())
+                .collect::<Vec<_>>();
+            connections.sort();
+            let total_connections: usize = connections.iter().sum();
+            let avg_connections = total_connections / node_count;
+            println!("\n{name} has {node_count} nodes, {total_connections} total connections, and {avg_connections} average connections");
+
+            let len = connections.len();
+            println!("connection distribution:");
+            for i in 0..11 {
+                println!("p{} {}", i * 10, connections[(len - 1).min(len / 10 * i)]);
+            }
+        }
+
+        match index {
+            Indexes::Bruteforce(_) => (),
+            Indexes::NSW(nsw) => {
+                let graph = nsw.graph();
+                print_layer("base".to_string(), graph);
+
+                let size = graph.size();
+                let res = nsw.search(graph.get(0).unwrap(), size, size);
+                println!("\nquery on whole index returned {}/{} elements", res.len(), size);
+            }
+            Indexes::HNSW(hnsw) => {
+                for (i, layer) in hnsw.layers().into_iter().enumerate().rev() {
+                    print_layer(format!("layer{i}"), layer);
+                }
+                let base = hnsw.base();
+                print_layer("base".to_string(), base);
+
+                let size = hnsw.size();
+                let res = hnsw.search(base.get(0).unwrap(), size, size);
+                println!("\nquery on whole index returned {}/{} elements", res.len(), size);
+            }
         }
 
         Ok(())

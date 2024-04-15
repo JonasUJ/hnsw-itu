@@ -301,6 +301,16 @@ pub struct HNSW<P> {
     pool: SetPool,
 }
 
+impl<P> HNSW<P> {
+    pub fn layers(&self) -> &Vec<SimpleGraph<(P, Idx)>> {
+        &self.layers
+    }
+
+    pub fn base(&self) -> &SimpleGraph<P> {
+        &self.base
+    }
+}
+
 impl<P> Index<P> for HNSW<P> {
     fn size(&self) -> usize {
         self.base.size()
