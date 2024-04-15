@@ -12,7 +12,8 @@ use bincode::{deserialize_from, serialize_into};
 use clap::{arg, Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File as Hdf5File};
 use hnsw_itu::{
-    Bruteforce, Distance, Graph, HNSWBuilder, HNSWIndex, Index, IndexBuilder, NSWBuilder, NSWIndex, NSWOptions, Point, SimpleGraph, HNSW, NSW
+    Bruteforce, Distance, Graph, HNSWBuilder, Index, IndexBuilder, NSWBuilder, NSWOptions, Point,
+    SimpleGraph, HNSW, NSW,
 };
 use hnsw_itu_cli::{BufferedDataset, Sketch};
 use ndarray::arr1;
@@ -391,12 +392,12 @@ impl Algorithm {
         &self,
         dataset: impl IntoIterator<Item = P>,
         options: impl Into<AlgorithmOptions>,
-    ) -> SerdeIndexes<P> {
+    ) -> Indexes<P> {
         let options = options.into();
         match self {
             Self::Bruteforce => {
                 let bruteforce = dataset.into_iter().collect();
-                SerdeIndexes::Bruteforce(bruteforce)
+                Indexes::Bruteforce(bruteforce)
             }
             Self::Nsw => {
                 let iter = dataset.into_iter();
@@ -413,7 +414,7 @@ impl Algorithm {
                     builder.extend_parallel(iter);
                 }
 
-                SerdeIndexes::NSW(builder.build())
+                Indexes::NSW(builder.build())
             }
             Algorithm::Hnsw => {
                 let iter = dataset.into_iter();
@@ -430,37 +431,13 @@ impl Algorithm {
                     builder.extend_parallel(iter);
                 }
 
-                SerdeIndexes::HNSW(builder.build())
+                Indexes::HNSW(builder.build())
             }
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum SerdeIndexes<P> {
-    Bruteforce(Bruteforce<P>),
-    NSW(NSWIndex<P>),
-    HNSW(HNSWIndex<P>),
-}
-
-impl<P> SerdeIndexes<P> {
-    fn size(&self) -> usize {
-        match self {
-            Self::Bruteforce(bruteforce) => bruteforce.size(),
-            Self::NSW(nswindex) => nswindex.size(),
-            Self::HNSW(hnswindex) => hnswindex.size(),
-        }
-    }
-
-    fn prepare(self) -> Indexes<P> {
-        match self {
-            SerdeIndexes::Bruteforce(bruteforce) => Indexes::Bruteforce(bruteforce),
-            SerdeIndexes::NSW(nswindex) => Indexes::NSW(nswindex.into()),
-            SerdeIndexes::HNSW(hnswindex) => Indexes::HNSW(hnswindex.into()),
-        }
-    }
-}
-
 pub enum Indexes<P> {
     Bruteforce(Bruteforce<P>),
     NSW(NSW<P>),
@@ -502,7 +479,7 @@ impl<P> Index<P> for Indexes<P> {
 #[derive(Serialize, Deserialize)]
 struct IndexFile<P> {
     attrs: ResultAttrs,
-    index: SerdeIndexes<P>,
+    index: Indexes<P>,
 }
 
 /// Create index from dataset, query it and generate result file
@@ -577,10 +554,9 @@ impl Action for Query {
             write_index(&path, &index_file)?;
         }
 
-        let index = index_file.index.prepare();
         let results = query_index(
             &self.queryfile,
-            &index,
+            &index_file.index,
             &mut index_file.attrs,
             self.k,
             self.ef,
@@ -689,10 +665,9 @@ struct QueryIndex {
 impl Action for QueryIndex {
     fn act(self) -> Result<()> {
         let mut index_file = read_index(&self.indexfile)?;
-        let index = index_file.index.prepare();
         let results = query_index(
             &self.queryfile,
-            &index,
+            &index_file.index,
             &mut index_file.attrs,
             self.k,
             self.ef,
@@ -745,10 +720,9 @@ impl Action for GroundTruth {
             self.start,
             self.len,
         )?;
-        let index = index_file.index.prepare();
         let results = query_index(
             &self.queryfile,
-            &index,
+            &index_file.index,
             &mut index_file.attrs,
             self.k,
             self.k,
@@ -788,7 +762,6 @@ struct Inspect {
 impl Action for Inspect {
     fn act(self) -> Result<()> {
         let index_file = read_index(&self.indexfile)?;
-        let index = index_file.index.prepare();
 
         println!("{:?}", index_file.attrs);
 
@@ -811,7 +784,7 @@ impl Action for Inspect {
             }
         }
 
-        match index {
+        match index_file.index {
             Indexes::Bruteforce(_) => (),
             Indexes::NSW(nsw) => {
                 let graph = nsw.graph();
@@ -819,7 +792,11 @@ impl Action for Inspect {
 
                 let size = graph.size();
                 let res = nsw.search(graph.get(0).unwrap(), size, size);
-                println!("\nquery on whole index returned {}/{} elements", res.len(), size);
+                println!(
+                    "\nquery on whole index returned {}/{} elements",
+                    res.len(),
+                    size
+                );
             }
             Indexes::HNSW(hnsw) => {
                 for (i, layer) in hnsw.layers().into_iter().enumerate().rev() {
@@ -830,7 +807,11 @@ impl Action for Inspect {
 
                 let size = hnsw.size();
                 let res = hnsw.search(base.get(0).unwrap(), size, size);
-                println!("\nquery on whole index returned {}/{} elements", res.len(), size);
+                println!(
+                    "\nquery on whole index returned {}/{} elements",
+                    res.len(),
+                    size
+                );
             }
         }
 
