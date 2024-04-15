@@ -152,7 +152,7 @@ fn build_index(
     );
     let buildtime_start = SystemTime::now();
 
-    let index = algorithm.create(dataset_iter, options);
+    let index = algorithm.create(dataset_iter, options.clone());
     let buildtime_total = buildtime_start.elapsed().unwrap_or(Duration::ZERO);
     let buildtime_per_element = buildtime_total / size as u32;
     info!(
@@ -165,6 +165,10 @@ fn build_index(
         size,
         algo: algorithm,
         buildtime: buildtime_total.as_secs_f64(),
+        params: format!(
+            "index=(efc={:?},m={:?},M={:?}),query=(N/A)",
+            options.ef_construction, options.connections, options.max_connections
+        ),
         ..Default::default()
     };
 
@@ -365,7 +369,7 @@ impl Commands {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct AlgorithmOptions {
     ef_construction: usize,
     connections: usize,
