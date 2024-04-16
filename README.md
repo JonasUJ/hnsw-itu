@@ -5,6 +5,74 @@ The project is structured into two crates:
 - `hnsw-itu` contains the implementation and api.
 - `hnsw-itu-cli`, located in the `cli` directory, is a runnable CLI that can build/query hnsw indices from HDF5 files.
 
+### API
+
+The implementation is data layout and distance function agnostic. Here's an example (see also the `examples` directory) of building and querying the HNSW graph for 3D points. All that's required for the dataset elements is that they implement the `Point` interface and `Clone`. If building/querying in parallel, the elements should also implement `Send + Sync`; use `HNSWBuilder::extend_parallel` and `HNSW::knns` to do parallel operations. If `Clone` is not feasible, try the `NSWBuilder`/`NSW` index which does not impose this requirement.
+
+```rs
+use hnsw_itu::{Distance, HNSWBuilder, Index, IndexBuilder, NSWOptions, Point};
+
+#[derive(Clone, Debug)]
+struct Point3D(i32, i32, i32);
+
+impl Point for Point3D {
+    fn distance(&self, other: &Self) -> usize {
+        // Define distance as the Euclidian distance in 3D space
+        ((other.0 - self.0).pow(2) + (other.1 - self.1).pow(2) + (other.2 - self.2).pow(2)) as usize
+    }
+}
+
+fn main() {
+    // Dataset of points
+    let points = (0..10)
+        .flat_map(|x| (0..10).map(move |y| (x, y)))
+        .flat_map(|(x, y)| (0..10).map(move |z| Point3D(x, y, z)))
+        .collect::<Vec<_>>();
+
+    // Graph builder with construction options
+    let mut builder = HNSWBuilder::new(NSWOptions {
+        connections: 8,
+        ef_construction: 24,
+        max_connections: 32,
+        size: points.len(),
+    });
+
+    // Add dataset to graph
+    builder.extend(points);
+
+    // Create immutable index from builder
+    let index = builder.build();
+
+    let query = Point3D(2, 4, 16);
+    let k = 10; // Number of NN to find
+    let ef = 20; // Beamwidth must be >= k
+
+    let result = index.search(&query, k, ef);
+
+    println!("Distance : Point");
+    for Distance {
+        distance, point, ..
+    } in result
+    {
+        println!("{distance} : {point:?}");
+    }
+}
+```
+This prints the following
+```
+Distance : Point
+49 : Point3D(2, 4, 9)
+50 : Point3D(1, 4, 9)
+50 : Point3D(2, 3, 9)
+50 : Point3D(2, 5, 9)
+50 : Point3D(3, 4, 9)
+51 : Point3D(1, 3, 9)
+51 : Point3D(1, 5, 9)
+51 : Point3D(3, 3, 9)
+51 : Point3D(3, 5, 9)
+53 : Point3D(0, 4, 9)
+```
+
 ### Using the CLI
 The CLI requires installing the `libhdf5-serial-dev` package through some package manager.
 ```sh
@@ -80,7 +148,7 @@ $ hnsw-itu index \
 
 Query and existing index
 ```sh
-$ hnsw-itu index \
+$ hnsw-itu query-index \
     --indexfile 10M.idx \
     --queryfile public-queries-10k-hammingv2.h5 \
 
