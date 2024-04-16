@@ -273,7 +273,7 @@ fn write_result(
             res.sort();
         }
 
-        let v = arr1(&res.iter().map(|d| d.key() as u64 + 1).collect::<Vec<u64>>());
+        let v = arr1(&res.iter().map(|d| d.key as u64 + 1).collect::<Vec<u64>>());
         knns.write_row(v, i)?;
     }
 
@@ -741,7 +741,7 @@ impl Action for GroundTruth {
 
             let (nn, dist): (Vec<_>, Vec<_>) = res
                 .iter()
-                .map(|d| (d.key() as u64 + 1, d.distance() as u64))
+                .map(|d| (d.key as u64 + 1, d.distance as u64))
                 .unzip();
 
             knns.write_row(arr1(&nn), i)?;

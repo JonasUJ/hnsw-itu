@@ -23,7 +23,7 @@ pub(crate) fn select_neighbors<'a, P>(
 
         if return_list
             .iter()
-            .all(|r| distance_fn(e.point(), r.point()) > e.distance())
+            .all(|r| distance_fn(e.point, r.point) > e.distance)
         {
             return_list.push(e);
         }
@@ -53,7 +53,7 @@ pub(crate) fn search_select_neighbors<P>(
 
     select_neighbors(w, m, distance_fn)
         .into_iter()
-        .map(|x| x.key())
+        .map(|x| x.key)
         .collect()
 }
 
@@ -122,7 +122,7 @@ pub(crate) fn insert_neighbors<P>(
 
         let keys = e_new_conn
             .into_iter()
-            .map(|dist| dist.key())
+            .map(|dist| dist.key)
             .collect::<Vec<_>>();
         graph.clear_edges(e);
         graph.add_neighbors(e, keys.into_iter());
@@ -149,11 +149,11 @@ pub(crate) fn search<'a, P, Q>(
         let c = cands.pop_min().expect("cands can't be empty");
         let f = w.peek_max().expect("w can't be empty");
 
-        if c.distance() > f.distance() {
+        if c.distance > f.distance {
             break;
         }
 
-        for e in graph.neighborhood(c.key()) {
+        for e in graph.neighborhood(c.key) {
             if visited.contains(e) {
                 continue;
             }
@@ -164,7 +164,7 @@ pub(crate) fn search<'a, P, Q>(
             let point = graph.get(*e).unwrap();
             let e_dist = Distance::new(distance_fn(point, query), *e, point);
 
-            if e_dist.distance() >= f.distance() && w.len() >= ef {
+            if e_dist.distance >= f.distance && w.len() >= ef {
                 continue;
             }
 
@@ -379,7 +379,7 @@ mod tests {
         let knns = nsw
             .search(&5, k, k)
             .into_iter()
-            .map(|dist| dist.point())
+            .map(|dist| dist.point)
             .copied();
         assert!(unordered_eq(knns, 3..=6));
     }
@@ -406,7 +406,7 @@ mod tests {
         let actual = select_neighbors(heap, 3, Point::distance);
 
         assert!(unordered_eq(
-            actual.iter().map(|dist| dist.point()),
+            actual.iter().map(|dist| dist.point),
             expected.iter()
         ));
     }

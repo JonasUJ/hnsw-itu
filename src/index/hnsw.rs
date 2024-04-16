@@ -94,7 +94,7 @@ impl<P: Point + Clone + Send + Sync> HNSWBuilder<P> {
                     for l in (level..self.layers.len()).rev() {
                         let layer = &self.layers[l];
                         let w = nsw::search(layer, &point, 1, ep, |(p, _), q| p.distance(q));
-                        ep = w.peek_min().unwrap().point().1;
+                        ep = w.peek_min().unwrap().point.1;
                     }
 
                     (point, idxs, ep)
@@ -209,7 +209,7 @@ impl<P: Point + Clone> IndexBuilder<P> for HNSWBuilder<P> {
         for l in (level..self.layers.len()).rev() {
             let layer = &self.layers[l];
             let w = nsw::search(layer, &point, 1, ep, |(p, _), q| p.distance(q));
-            ep = w.peek_min().unwrap().point().1;
+            ep = w.peek_min().unwrap().point.1;
         }
 
         // Insert in all layers below here
@@ -282,7 +282,7 @@ impl<P> Index<P> for HNSW<P> {
             ep = w
                 .pop_min()
                 .expect("search must find something when graph is not empty")
-                .point()
+                .point
                 .1;
         }
 
@@ -317,7 +317,7 @@ mod tests {
         let knns = hnsw
             .search(&5, k, k)
             .into_iter()
-            .map(|dist| dist.point())
+            .map(|dist| dist.point)
             .copied();
         assert!(unordered_eq(knns.clone(), 3..=6) || unordered_eq(knns.clone(), 4..=7));
 
@@ -348,7 +348,7 @@ mod tests {
         let actual = nsw::select_neighbors(heap, 3, Point::distance);
 
         assert!(unordered_eq(
-            actual.iter().map(|dist| dist.point()),
+            actual.iter().map(|dist| dist.point),
             expected.iter()
         ));
     }
