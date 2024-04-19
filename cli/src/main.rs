@@ -169,7 +169,7 @@ fn build_index(
         algo: algorithm,
         buildtime: buildtime_total.as_secs_f64(),
         params: format!(
-            "index=(efc={:?},m={:?},M={:?}),query=(N/A)",
+            "index=(efc={:?},m={:?},M={:?})",
             options.ef_construction, options.connections, options.max_connections
         ),
         ..Default::default()
@@ -216,6 +216,7 @@ fn query_index<'a>(
     );
 
     attrs.querytime = querytime_total.as_secs_f64();
+    attrs.params = format!("{},query=(ef={ef})", attrs.params);
 
     Ok(results)
 }
