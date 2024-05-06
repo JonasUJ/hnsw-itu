@@ -2,7 +2,7 @@ use std::{collections::HashSet, iter};
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use hnsw_itu::{BitSet, Set};
+use hnsw_itu::{BitSet, Idx, Set};
 use rand::Rng;
 
 macro_rules! bench {
@@ -17,13 +17,13 @@ macro_rules! bench {
     };
 }
 
-fn hashset_contains(set: HashSet<usize>, lst: Vec<usize>) {
+fn hashset_contains(set: HashSet<Idx>, lst: Vec<Idx>) {
     lst.into_iter().for_each(|p| {
         set.contains(&p);
     });
 }
 
-fn bitset_contains(set: BitSet, lst: Vec<usize>) {
+fn bitset_contains(set: BitSet, lst: Vec<Idx>) {
     lst.into_iter().for_each(|p| {
         set.contains(p);
     });

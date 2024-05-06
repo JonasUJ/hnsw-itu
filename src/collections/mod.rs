@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 pub use crate::bitset::*;
 pub use crate::simplegraph::*;
 
-pub type Idx = usize;
+pub type Idx = u32;
 
 pub trait Graph<T> {
     fn add(&mut self, t: T) -> Idx;
@@ -81,8 +81,6 @@ pub trait Reset {
 }
 
 pub trait Set<T>
-where
-    T: Into<usize> + Clone,
 {
     fn insert(&mut self, t: T);
 

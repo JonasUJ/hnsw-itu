@@ -18,11 +18,13 @@ impl BitSet {
 
 impl Set<Idx> for BitSet {
     fn insert(&mut self, t: Idx) {
+        let t = t as usize;
         let s = std::mem::size_of::<Idx>();
         self.bits[t / s] |= 1 << (t % s);
     }
 
     fn contains(&self, t: Idx) -> bool {
+        let t = t as usize;
         let s = std::mem::size_of::<Idx>();
         self.bits[t / s] & (1 << (t % s)) != 0
     }
@@ -55,17 +57,17 @@ mod tests {
     #[test]
     fn test_bitset() {
         let mut set = BitSet::new(100);
-        set.insert(3usize);
-        set.insert(93usize);
-        assert!(set.contains(3usize));
-        assert!(set.contains(93usize));
-        assert!(!set.contains(67usize));
-        assert!(!set.contains(29usize));
-        assert!(!set.contains(30usize));
+        set.insert(3);
+        set.insert(93);
+        assert!(set.contains(3));
+        assert!(set.contains(93));
+        assert!(!set.contains(67));
+        assert!(!set.contains(29));
+        assert!(!set.contains(30));
 
         set.reset();
 
-        assert!(!set.contains(3usize));
-        assert!(!set.contains(93usize));
+        assert!(!set.contains(3));
+        assert!(!set.contains(93));
     }
 }

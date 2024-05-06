@@ -2,7 +2,7 @@ use std::{collections::HashSet, iter};
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use hnsw_itu::{BitSet, Set};
+use hnsw_itu::{BitSet, Idx, Set};
 use rand::Rng;
 
 macro_rules! bench {
@@ -17,21 +17,21 @@ macro_rules! bench {
     };
 }
 
-fn hashset_new_insert(lst: Vec<usize>) {
+fn hashset_new_insert(lst: Vec<Idx>) {
     let mut set = HashSet::new();
     lst.into_iter().for_each(|p| {
         set.insert(p);
     });
 }
 
-fn hashset_with_capacity_insert(lst: Vec<usize>) {
+fn hashset_with_capacity_insert(lst: Vec<Idx>) {
     let mut set = HashSet::with_capacity(2000);
     lst.into_iter().for_each(|p| {
         set.insert(p);
     });
 }
 
-fn bitset_insert(lst: Vec<usize>) {
+fn bitset_insert(lst: Vec<Idx>) {
     let mut set = BitSet::new(10_000_000);
     lst.into_iter().for_each(|p| {
         set.insert(p);

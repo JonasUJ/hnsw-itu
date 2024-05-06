@@ -770,7 +770,7 @@ impl Action for Inspect {
             let node_count = layer.nodes().len();
             let mut connections = layer
                 .adj_lists()
-                .into_iter()
+                .iter()
                 .map(|l| l.len())
                 .collect::<Vec<_>>();
             connections.sort();
@@ -800,7 +800,7 @@ impl Action for Inspect {
                 );
             }
             Indexes::HNSW(hnsw) => {
-                for (i, layer) in hnsw.layers().into_iter().enumerate().rev() {
+                for (i, layer) in hnsw.layers().iter().enumerate().rev() {
                     print_layer(format!("layer{i}"), layer);
                 }
                 let base = hnsw.base();

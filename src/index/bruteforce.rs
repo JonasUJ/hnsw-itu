@@ -1,7 +1,7 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{Distance, IndexBuilder, MinK, Point};
+use crate::{Distance, Idx, IndexBuilder, MinK, Point};
 
 use super::Index;
 
@@ -42,7 +42,7 @@ impl<P> Index<P> for Bruteforce<P> {
         self.points
             .iter()
             .enumerate()
-            .map(|(key, point)| Distance::new(query.distance(point), key, point))
+            .map(|(key, point)| Distance::new(query.distance(point), key as Idx, point))
             .min_k(k)
     }
 

@@ -29,18 +29,18 @@ impl<T> SimpleGraph<T> {
     }
 
     fn is_in_bounds(&self, v: Idx, w: Idx) -> bool {
-        let len = self.adj_lists.len();
+        let len = self.adj_lists.len() as Idx;
         v < len && w < len
     }
 
     fn connect_directed(&mut self, src: Idx, target: Idx) {
-        if let Some(set) = self.adj_lists.get_mut(src) {
+        if let Some(set) = self.adj_lists.get_mut(src as usize) {
             set.insert(target);
         }
     }
 
     fn disconnect_directed(&mut self, src: Idx, target: Idx) {
-        if let Some(set) = self.adj_lists.get_mut(src) {
+        if let Some(set) = self.adj_lists.get_mut(src as usize) {
             set.remove(&target);
         }
     }
@@ -80,14 +80,14 @@ impl<T> FromIterator<T> for SimpleGraph<T> {
 
 impl<T> Graph<T> for SimpleGraph<T> {
     fn add(&mut self, t: T) -> Idx {
-        let idx = self.nodes.len();
+        let idx = self.nodes.len() as Idx;
         self.nodes.push(t);
         self.adj_lists.push(HashSet::new());
         idx
     }
 
     fn get(&self, v: Idx) -> Option<&T> {
-        self.nodes.get(v)
+        self.nodes.get(v as usize)
     }
 
     fn add_edge(&mut self, v: Idx, w: Idx) {
@@ -109,7 +109,7 @@ impl<T> Graph<T> for SimpleGraph<T> {
     }
 
     fn neighborhood(&self, v: Idx) -> impl Iterator<Item = &Idx> {
-        if let Some(set) = self.adj_lists.get(v) {
+        if let Some(set) = self.adj_lists.get(v as usize) {
             return set.iter();
         }
 
