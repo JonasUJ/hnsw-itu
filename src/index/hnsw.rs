@@ -1,4 +1,4 @@
-use rand::{rngs::ThreadRng, thread_rng, Rng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ pub struct HNSWBuilder<P> {
     layers: Vec<SimpleGraph<(P, Idx)>>,
     base: SimpleGraph<P>,
     ep: Option<Idx>,
-    rng: ThreadRng,
+    rng: StdRng,
     ef_construction: usize,
     connections: usize,
     max_connections: usize,
@@ -21,7 +21,13 @@ impl<P> HNSWBuilder<P> {
             layers: Default::default(),
             base: Default::default(),
             ep: None,
-            rng: thread_rng(),
+            rng: StdRng::seed_from_u64(
+                (rayon::current_num_threads()
+                    ^ options.size
+                    ^ options.ef_construction
+                    ^ options.connections
+                    ^ options.max_connections) as u64,
+            ),
             ef_construction: options.ef_construction,
             connections: options.connections,
             max_connections: options.max_connections,
