@@ -28,6 +28,12 @@ where
     fn contains(&self, t: T) -> bool {
         self.vals[Into::<usize>::into(t.clone())] == self.generation
     }
+
+    fn len(&self) -> usize {
+        self.vals
+            .iter()
+            .fold(0usize, |acc, &x| if x == self.generation { acc + x as usize } else { acc })
+    }
 }
 
 impl Reset for GenerationSet {

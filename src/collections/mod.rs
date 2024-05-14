@@ -1,9 +1,11 @@
 pub mod bitset;
+pub mod generationset;
 pub mod simplegraph;
 
 use std::collections::BinaryHeap;
 
 pub use crate::bitset::*;
+pub use crate::generationset::*;
 pub use crate::simplegraph::*;
 
 pub type Idx = usize;
@@ -101,5 +103,13 @@ mod tests {
         v = v.into_iter().min_k(5);
         v.sort();
         assert_eq!(v, vec![0, 0, 1, 1, 2]);
+    }
+
+    #[test]
+    fn test_min_k2() {
+        let mut v = vec![0, 1, 4, 2, 5, 9, 10, 3, 6, 7, 8, 11, 12, 13, 14];
+        v = v.into_iter().min_k(5);
+        v.sort();
+        assert_eq!(v, vec![0, 1, 2, 3, 4]);
     }
 }

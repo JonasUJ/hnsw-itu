@@ -2,7 +2,7 @@ use std::{collections::HashSet, iter};
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use hnsw_itu::{BitSet, Set};
+use hnsw_itu::{BitSet, GenerationSet, Set};
 use rand::Rng;
 
 macro_rules! bench {
@@ -38,6 +38,13 @@ fn bitset_insert(lst: Vec<usize>) {
     });
 }
 
+fn generationset_insert(lst: Vec<usize>) {
+    let mut set = GenerationSet::new(10_000_000);
+    lst.into_iter().for_each(|p| {
+        set.insert(p);
+    });
+}
+
 pub fn set_insert_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Set insert");
 
@@ -56,6 +63,7 @@ pub fn set_insert_benchmark(c: &mut Criterion) {
         group
     );
     bench!("Bitset insert", bitset_insert, values, group);
+    bench!("Generationset insert", generationset_insert, values, group);
 }
 
 criterion_group!(benches, set_insert_benchmark);

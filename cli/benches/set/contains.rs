@@ -2,7 +2,7 @@ use std::{collections::HashSet, iter};
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use hnsw_itu::{BitSet, Set};
+use hnsw_itu::{BitSet, GenerationSet, Set};
 use rand::Rng;
 
 macro_rules! bench {
@@ -29,6 +29,12 @@ fn bitset_contains(set: BitSet, lst: Vec<usize>) {
     });
 }
 
+fn generationset_contains(set: GenerationSet, lst: Vec<usize>) {
+    lst.into_iter().for_each(|p| {
+        set.contains(p);
+    });
+}
+
 pub fn set_contains_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Set contains");
 
@@ -41,15 +47,18 @@ pub fn set_contains_benchmark(c: &mut Criterion) {
 
     let mut hashset = HashSet::new();
     let mut bitset = BitSet::new(10_000_000);
+    let mut generationset = GenerationSet::new(10_000_000);
 
     for _ in 0..size / 2 {
         let i = rand::thread_rng().gen_range(0..size);
         hashset.insert(i);
         bitset.insert(i);
+        generationset.insert(i);
     }
 
     bench!("Hashset contains", hashset_contains, hashset, values, group);
     bench!("Bitset contains", bitset_contains, bitset, values, group);
+    bench!("Generationset contains", generationset_contains, generationset, values, group);
 }
 
 criterion_group!(benches, set_contains_benchmark);
