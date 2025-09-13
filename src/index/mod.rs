@@ -43,12 +43,12 @@ pub trait Index<P> {
 }
 
 pub trait Point {
-    fn distance(&self, other: &Self) -> usize;
+    fn distance(&self, other: &Self) -> f32;
 }
 
 #[derive(Debug)]
 pub struct Distance<'a, P> {
-    pub distance: usize,
+    pub distance: f32,
     pub key: usize,
     pub point: &'a P,
 }
@@ -64,7 +64,7 @@ impl<'a, P> Clone for Distance<'a, P> {
 }
 
 impl<'a, P> Distance<'a, P> {
-    pub const fn new(distance: usize, key: usize, point: &'a P) -> Self {
+    pub const fn new(distance: f32, key: usize, point: &'a P) -> Self {
         Self {
             distance,
             key,
@@ -89,7 +89,7 @@ impl<'a, P> Eq for Distance<'a, P> {}
 
 impl<'a, P> Ord for Distance<'a, P> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.distance.cmp(&other.distance) {
+        match self.distance.partial_cmp(&other.distance).unwrap() {
             Ordering::Equal => self.key.cmp(&other.key),
             ordering => ordering,
         }

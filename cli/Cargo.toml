@@ -15,7 +15,8 @@ clap = { version = "4.5.0", features = ["derive"] }
 clap-verbosity-flag = "2.2.0"
 hdf5 = "0.8.1"
 hnsw-itu = { version = "0.1.0", path = "..", features = ["serde", "tracing"] }
-ndarray = "0.15.6"
+ndarray = { version = "0.15.6", features = ["serde", "blas"] }
+blas-src = { version = "0.8", features = ["openblas"] }
 predicates = "3.1.0"
 rand = "0.8.5"
 serde = "1.0.197"

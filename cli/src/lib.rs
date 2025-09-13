@@ -1,3 +1,5 @@
+extern crate blas_src;
+
 pub mod dataset;
 pub mod sketch;
 

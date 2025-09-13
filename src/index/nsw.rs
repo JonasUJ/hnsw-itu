@@ -12,7 +12,7 @@ use tracing::trace;
 pub(crate) fn select_neighbors<'a, P>(
     mut candidates: MinMaxHeap<Distance<'a, P>>,
     m: usize,
-    distance_fn: impl Fn(&P, &P) -> usize,
+    distance_fn: impl Fn(&P, &P) -> f32,
 ) -> Vec<Distance<'a, P>> {
     let mut return_list = Vec::<Distance<'a, P>>::new();
 
@@ -47,7 +47,7 @@ pub(crate) fn search_select_neighbors<P>(
     m: usize,
     ef: usize,
     ep: Idx,
-    distance_fn: &impl Fn(&P, &P) -> usize,
+    distance_fn: &impl Fn(&P, &P) -> f32,
 ) -> Vec<Idx> {
     let w = search(graph, point, ef, ep, distance_fn);
 
@@ -77,7 +77,7 @@ pub(crate) fn insert_idx<P>(
     m_max: usize,
     ef: usize,
     ep: Idx,
-    distance_fn: impl Fn(&P, &P) -> usize,
+    distance_fn: impl Fn(&P, &P) -> f32,
 ) -> Idx {
     let point = graph
         .get(point_idx)
@@ -96,7 +96,7 @@ pub(crate) fn insert_neighbors<P>(
     point_idx: Idx,
     neighbors: &Vec<Idx>,
     m_max: usize,
-    distance_fn: impl Fn(&P, &P) -> usize,
+    distance_fn: impl Fn(&P, &P) -> f32,
 ) {
     for e in neighbors {
         graph.add_edge(point_idx, *e);
@@ -135,7 +135,7 @@ pub(crate) fn search<'a, P, Q>(
     query: &Q,
     ef: usize,
     ep: Idx,
-    distance_fn: impl Fn(&P, &Q) -> usize,
+    distance_fn: impl Fn(&P, &Q) -> f32,
 ) -> MinMaxHeap<Distance<'a, P>> {
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
     let dist = Distance::new(distance_fn(ep_elem, query), ep, ep_elem);
@@ -358,8 +358,8 @@ mod tests {
     use super::*;
 
     impl Point for i32 {
-        fn distance(&self, other: &Self) -> usize {
-            (other - self).unsigned_abs() as usize
+        fn distance(&self, other: &Self) -> f32 {
+            (other - self).unsigned_abs() as f32
         }
     }
 

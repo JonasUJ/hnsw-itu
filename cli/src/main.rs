@@ -117,7 +117,7 @@ fn build_index(
     len: Option<usize>,
 ) -> Result<IndexFile<Sketch>> {
     info!(?path, "Opening");
-    let dataset = BufferedDataset::<'_, Sketch, _>::open(path, "hamming")?;
+    let dataset = BufferedDataset::<'_, Sketch, _>::open(path, "train")?;
 
     let format_size = start.is_none() && len.is_none();
     let skip = start.unwrap_or_default();
@@ -195,7 +195,7 @@ fn query_index<'a>(
     }
 
     info!(?path, "Opening");
-    let queries = BufferedDataset::open(path, "hamming")?;
+    let queries = BufferedDataset::open(path, "train")?;
     let queries_size: u32 = queries.size().try_into().unwrap();
 
     info!(k, ef, single_threaded, "Start querying");
