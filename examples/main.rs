@@ -22,7 +22,6 @@ fn main() {
         connections: 8,
         ef_construction: 24,
         max_connections: 32,
-        size: points.len(),
     });
 
     // Add dataset to graph

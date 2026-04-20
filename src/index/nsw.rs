@@ -200,7 +200,6 @@ pub struct NSWOptions {
     pub ef_construction: usize,
     pub connections: usize,
     pub max_connections: usize,
-    pub size: usize,
 }
 
 impl Default for NSWOptions {
@@ -209,7 +208,6 @@ impl Default for NSWOptions {
             ef_construction: 100,
             connections: 16,
             max_connections: 32,
-            size: 0,
         }
     }
 }
@@ -425,7 +423,6 @@ mod tests {
         let range = 1..20;
         let mut builder = NSWBuilder::new(NSWOptions {
             ef_construction: k,
-            size: range.len(),
             ..NSWOptions::default()
         });
 
@@ -447,7 +444,6 @@ mod tests {
         let numbers = vec![1, 5, 6, 7, 16, 18];
         let mut builder = NSWBuilder::new(NSWOptions {
             ef_construction: k,
-            size: numbers.len(),
             ..NSWOptions::default()
         });
         let expected = [7, 16];

@@ -26,7 +26,6 @@ impl<P> HNSWBuilder<P> {
             ep: None,
             rng: StdRng::seed_from_u64(
                 (rayon::current_num_threads()
-                    ^ options.size
                     ^ options.ef_construction
                     ^ options.connections
                     ^ options.max_connections) as u64,
@@ -377,7 +376,6 @@ mod tests {
         let mut builder = HNSWBuilder::new(NSWOptions {
             ef_construction: k,
             connections: 3,
-            size: range.len(),
             ..NSWOptions::default()
         });
 
@@ -403,7 +401,6 @@ mod tests {
         let mut builder = HNSWBuilder::new(NSWOptions {
             ef_construction: k,
             connections: 3,
-            size: numbers.len(),
             ..NSWOptions::default()
         });
         let expected = [7, 16];

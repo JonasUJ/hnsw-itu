@@ -406,7 +406,6 @@ impl Algorithm {
                     ef_construction: options.ef_construction,
                     connections: options.connections,
                     max_connections: options.max_connections,
-                    size: options.size.expect("size must be know"),
                 });
 
                 if options.single_threaded {
@@ -423,7 +422,6 @@ impl Algorithm {
                     ef_construction: options.ef_construction,
                     connections: options.connections,
                     max_connections: options.max_connections,
-                    size: options.size.expect("size must be know"),
                 });
 
                 if options.single_threaded {
