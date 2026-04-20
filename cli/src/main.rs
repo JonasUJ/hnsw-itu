@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use bincode::{deserialize_from, serialize_into};
-use clap::{arg, Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use hdf5::{types::VarLenUnicode, File as Hdf5File};
 use hnsw_itu::{
     Bruteforce, Distance, Graph, HNSWBuilder, Index, IndexBuilder, NSWBuilder, NSWOptions, Point,
@@ -196,17 +196,17 @@ fn query_index<'a>(
 
     info!(?path, "Opening");
     let queries = BufferedDataset::open(path, "train")?;
-    let queries_size: u32 = queries.size().try_into().unwrap();
+    let queries_size: u32 = queries.size().try_into()?;
 
     info!(k, ef, single_threaded, "Start querying");
     let querytime_start = SystemTime::now();
     let results = if single_threaded {
         queries
             .into_iter()
-            .map(|q| index.search(&q, k, ef))
+            .map(|q| index.search(&q, k, &ef))
             .collect()
     } else {
-        index.knns(queries, k, ef)
+        index.knns(&queries.into_iter().collect::<Vec<_>>(), k, &ef)
     };
     let querytime_total = querytime_start.elapsed().unwrap_or_default();
     let querytime_per_element = querytime_total / queries_size;
@@ -446,6 +446,7 @@ pub enum Indexes<P> {
 }
 
 impl<P> Index<P> for Indexes<P> {
+    type Options<'a> = usize;
     fn size(&self) -> usize {
         match self {
             Self::Bruteforce(bruteforce) => bruteforce.size(),
@@ -454,12 +455,12 @@ impl<P> Index<P> for Indexes<P> {
         }
     }
 
-    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>>
+    fn search(&'_ self, query: &P, k: usize, ef: &Self::Options<'_>) -> Vec<Distance<'_, P>>
     where
         P: Point,
     {
         let mut res = match self {
-            Self::Bruteforce(bruteforce) => bruteforce.search(query, k, ef),
+            Self::Bruteforce(bruteforce) => bruteforce.search(query, k, &()),
             Self::NSW(nsw) => nsw.search(query, k, ef),
             Self::HNSW(hnsw) => hnsw.search(query, k, ef),
         };
@@ -792,7 +793,7 @@ impl Action for Inspect {
                 print_layer("base".to_string(), graph);
 
                 let size = graph.size();
-                let res = nsw.search(graph.get(0).unwrap(), size, size);
+                let res = nsw.search(graph.get(0).unwrap(), size, &size);
                 println!(
                     "\nquery on whole index returned {}/{} elements",
                     res.len(),
@@ -803,11 +804,11 @@ impl Action for Inspect {
                 for (i, layer) in hnsw.layers().into_iter().enumerate().rev() {
                     print_layer(format!("layer{i}"), layer);
                 }
-                let base = hnsw.base();
+                let base = hnsw.graph();
                 print_layer("base".to_string(), base);
 
                 let size = hnsw.size();
-                let res = hnsw.search(base.get(0).unwrap(), size, size);
+                let res = hnsw.search(base.get(0).unwrap(), size, &size);
                 println!(
                     "\nquery on whole index returned {}/{} elements",
                     res.len(),

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{Distance, Graph, Idx, Index, IndexBuilder, Point, SimpleGraph};
+use crate::{Distance, Graph, Idx, Index, IndexBuilder, IndexVis, Point, SimpleGraph};
 use min_max_heap::MinMaxHeap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
@@ -137,11 +137,23 @@ pub(crate) fn search<'a, P, Q>(
     ep: Idx,
     distance_fn: impl Fn(&P, &Q) -> f32,
 ) -> MinMaxHeap<Distance<'a, P>> {
+    let mut visited = HashSet::with_capacity(2048);
+    visited.insert(Distance::new(0.0, ep, graph.get(ep).unwrap()));
+
+    search_vis(graph, query, ef, ep, distance_fn, &mut visited)
+}
+
+pub(crate) fn search_vis<'a, P, Q>(
+    graph: &'a impl Graph<P>,
+    query: &Q,
+    ef: usize,
+    ep: Idx,
+    distance_fn: impl Fn(&P, &Q) -> f32,
+    visited: &mut HashSet<Distance<'a, P>>,
+) -> MinMaxHeap<Distance<'a, P>> {
     let ep_elem = graph.get(ep).expect("entry point was not in graph");
     let dist = Distance::new(distance_fn(ep_elem, query), ep, ep_elem);
 
-    let mut visited = HashSet::with_capacity(2048);
-    visited.insert(ep);
     let mut w = MinMaxHeap::from_iter([dist.clone()]);
     let mut cands = MinMaxHeap::from_iter([dist]);
 
@@ -154,15 +166,15 @@ pub(crate) fn search<'a, P, Q>(
         }
 
         for e in graph.neighborhood(c.key) {
-            if visited.contains(e) {
+            let point = graph.get(*e).unwrap();
+            if visited.contains(&Distance::new(0.0, *e, point)) {
                 continue;
             }
 
-            visited.insert(*e);
             let f = w.peek_max().expect("w can't be empty");
 
-            let point = graph.get(*e).unwrap();
             let e_dist = Distance::new(distance_fn(point, query), *e, point);
+            visited.insert(e_dist.clone());
 
             if e_dist.distance >= f.distance && w.len() >= ef {
                 continue;
@@ -183,6 +195,7 @@ pub(crate) fn search<'a, P, Q>(
     w
 }
 
+#[derive(Debug)]
 pub struct NSWOptions {
     pub ef_construction: usize,
     pub connections: usize,
@@ -231,10 +244,24 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
             }
         }
 
-        // There needs to be some amount of nodes already to not generate a truly horrible graph.
-        self.extend(iter.by_ref().take(0.max(50_000 - self.graph.size())));
+        let max_threads = rayon::current_num_threads();
+        let chunk_size = max_threads * 32;
 
-        let chunk_size = rayon::current_num_threads() * 32;
+        // Pools with an increasing number of threads. The first couple of points should be
+        // inserted with fewer threads to generate a better graph.
+        let pools: Vec<rayon::ThreadPool> = {
+            let mut v = Vec::new();
+            for t in 0..max_threads {
+                v.push(
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(t)
+                        .build()
+                        .unwrap(),
+                );
+            }
+            v
+        };
+        let mut pool_idx = 0;
 
         loop {
             let chunk = iter.by_ref().take(chunk_size).collect::<Vec<_>>();
@@ -243,27 +270,30 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
                 break;
             }
 
-            for (point_idx, neighbors) in chunk
-                .into_iter()
-                .map(|point| self.graph.add(point))
-                .collect::<Vec<_>>()
-                .into_par_iter()
-                .map(|point_idx| {
-                    let point = self.graph.get(point_idx).unwrap();
+            let pool = &pools[pool_idx];
 
-                    let neighbors = search_select_neighbors(
-                        &self.graph,
-                        point,
-                        self.connections,
-                        self.ef_construction,
-                        self.ep.unwrap(),
-                        &Point::distance,
-                    );
+            for (point_idx, neighbors) in pool.install(|| {
+                chunk
+                    .into_iter()
+                    .map(|point| self.graph.add(point))
+                    .collect::<Vec<_>>()
+                    .into_par_iter()
+                    .map(|point_idx| {
+                        let point = self.graph.get(point_idx).unwrap();
 
-                    (point_idx, neighbors)
-                })
-                .collect::<Vec<_>>()
-            {
+                        let neighbors = search_select_neighbors(
+                            &self.graph,
+                            point,
+                            self.connections,
+                            self.ef_construction,
+                            self.ep.unwrap(),
+                            &Point::distance,
+                        );
+
+                        (point_idx, neighbors)
+                    })
+                    .collect::<Vec<_>>()
+            }) {
                 insert_neighbors(
                     &mut self.graph,
                     point_idx,
@@ -271,6 +301,10 @@ impl<P: Point + Send + Sync> NSWBuilder<P> {
                     self.max_connections,
                     Point::distance,
                 );
+            }
+
+            if pool_idx + 1 < pools.len() {
+                pool_idx += 1;
             }
         }
     }
@@ -334,16 +368,38 @@ impl<P> NSW<P> {
 }
 
 impl<P> Index<P> for NSW<P> {
+    type Options<'a> = usize;
+
     fn size(&self) -> usize {
         self.graph.size()
     }
 
-    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>>
+    fn search(&'_ self, query: &P, k: usize, ef: &Self::Options<'_>) -> Vec<Distance<'_, P>>
     where
         P: Point,
     {
         self.ep.map_or_else(Vec::default, |ep| {
-            search(&self.graph, query, ef, ep, Point::distance)
+            search(&self.graph, query, *ef, ep, Point::distance)
+                .drain_asc()
+                .take(k)
+                .collect()
+        })
+    }
+}
+
+impl<P> IndexVis<P> for NSW<P> {
+    fn search_vis<'a>(
+        &'a self,
+        query: &P,
+        k: usize,
+        ef: &Self::Options<'_>,
+        vis: &mut HashSet<Distance<'a, P>>,
+    ) -> Vec<Distance<'a, P>>
+    where
+        P: Point,
+    {
+        self.ep.map_or_else(Vec::default, move |ep| {
+            search_vis(&self.graph, query, *ef, ep, Point::distance, vis)
                 .drain_asc()
                 .take(k)
                 .collect()
@@ -377,7 +433,7 @@ mod tests {
 
         let nsw = builder.build();
         let knns = nsw
-            .search(&5, k, k)
+            .search(&5, k, &k)
             .into_iter()
             .map(|dist| dist.point)
             .copied();

@@ -2,8 +2,11 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
-use crate::{nsw, Distance, Graph, Idx, Index, IndexBuilder, NSWOptions, Point, SimpleGraph};
+use crate::{
+    nsw, Distance, Graph, Idx, Index, IndexBuilder, IndexVis, NSWOptions, Point, SimpleGraph,
+};
 
 pub struct HNSWBuilder<P> {
     layers: Vec<SimpleGraph<(P, Idx)>>,
@@ -50,10 +53,24 @@ impl<P: Point + Clone + Send + Sync> HNSWBuilder<P> {
             }
         }
 
-        // There needs to be some amount of nodes already to not generate a truly horrible graph.
-        self.extend(iter.by_ref().take(0.max(50_000 - self.base.size())));
+        let max_threads = rayon::current_num_threads();
+        let chunk_size = max_threads * 32;
 
-        let chunk_size = rayon::current_num_threads() * 32;
+        // Pools with an increasing number of threads. The first couple of points should be
+        // inserted with fewer threads to generate a better graph.
+        let pools: Vec<rayon::ThreadPool> = {
+            let mut v = Vec::new();
+            for t in 0..max_threads {
+                v.push(
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(t)
+                        .build()
+                        .unwrap(),
+                );
+            }
+            v
+        };
+        let mut pool_idx = 0;
 
         loop {
             let chunk = iter.by_ref().take(chunk_size).collect::<Vec<_>>();
@@ -61,6 +78,8 @@ impl<P: Point + Clone + Send + Sync> HNSWBuilder<P> {
             if chunk.is_empty() {
                 break;
             }
+
+            let pool = &pools[pool_idx];
 
             let level = self.random_level();
 
@@ -91,41 +110,45 @@ impl<P: Point + Clone + Send + Sync> HNSWBuilder<P> {
                 self.ep = Some(idx);
             }
 
-            let chunk_idxs = chunk_idxs
-                .into_par_iter()
-                .map(|(point, idxs)| {
-                    let mut ep = self.ep.unwrap();
+            let chunk_idxs = pool.install(|| {
+                chunk_idxs
+                    .into_par_iter()
+                    .map(|(point, idxs)| {
+                        let mut ep = self.ep.unwrap();
 
-                    // Search until layer where we want to start inserting
-                    for l in (level..self.layers.len()).rev() {
-                        let layer = &self.layers[l];
-                        let w = nsw::search(layer, &point, 1, ep, |(p, _), q| p.distance(q));
-                        ep = w.peek_min().unwrap().point.1;
-                    }
+                        // Search until layer where we want to start inserting
+                        for l in (level..self.layers.len()).rev() {
+                            let layer = &self.layers[l];
+                            let w = nsw::search(layer, &point, 1, ep, |(p, _), q| p.distance(q));
+                            ep = w.peek_min().unwrap().point.1;
+                        }
 
-                    (point, idxs, ep)
-                })
-                .collect::<Vec<_>>();
+                        (point, idxs, ep)
+                    })
+                    .collect::<Vec<_>>()
+            });
 
             // Insert in all layers below here
             for l in (0..level).rev() {
-                let chunk_neighbors = chunk_idxs
-                    .clone()
-                    .into_par_iter()
-                    .map(|(point, idxs, ep)| {
-                        let neighbors = nsw::search_select_neighbors(
-                            &self.layers[l],
-                            // Idx can be default because it's unused in distance_fn
-                            &(point, Idx::default()),
-                            self.connections,
-                            self.ef_construction,
-                            ep,
-                            &|(p, _), (q, _)| p.distance(q),
-                        );
+                let chunk_neighbors = pool.install(|| {
+                    chunk_idxs
+                        .clone()
+                        .into_par_iter()
+                        .map(|(point, idxs, ep)| {
+                            let neighbors = nsw::search_select_neighbors(
+                                &self.layers[l],
+                                // Idx can be default because it's unused in distance_fn
+                                &(point, Idx::default()),
+                                self.connections,
+                                self.ef_construction,
+                                ep,
+                                &|(p, _), (q, _)| p.distance(q),
+                            );
 
-                        (neighbors, idxs)
-                    })
-                    .collect::<Vec<_>>();
+                            (neighbors, idxs)
+                        })
+                        .collect::<Vec<_>>()
+                });
 
                 for (neighbors, idxs) in chunk_neighbors {
                     nsw::insert_neighbors(
@@ -139,21 +162,23 @@ impl<P: Point + Clone + Send + Sync> HNSWBuilder<P> {
             }
 
             // Search base layer
-            let chunk_neighbors = chunk_idxs
-                .into_par_iter()
-                .map(|(point, idxs, ep)| {
-                    let neighbors = nsw::search_select_neighbors(
-                        &self.base,
-                        &point,
-                        self.connections,
-                        self.ef_construction,
-                        ep,
-                        &Point::distance,
-                    );
+            let chunk_neighbors = pool.install(|| {
+                chunk_idxs
+                    .into_par_iter()
+                    .map(|(point, idxs, ep)| {
+                        let neighbors = nsw::search_select_neighbors(
+                            &self.base,
+                            &point,
+                            self.connections,
+                            self.ef_construction,
+                            ep,
+                            &Point::distance,
+                        );
 
-                    (neighbors, idxs[0])
-                })
-                .collect::<Vec<_>>();
+                        (neighbors, idxs[0])
+                    })
+                    .collect::<Vec<_>>()
+            });
 
             // Insert in base layer
             for (neighbors, idx) in chunk_neighbors {
@@ -164,6 +189,10 @@ impl<P: Point + Clone + Send + Sync> HNSWBuilder<P> {
                     self.max_connections,
                     Point::distance,
                 );
+            }
+
+            if pool_idx + 1 < pools.len() {
+                pool_idx += 1;
             }
         }
     }
@@ -265,21 +294,15 @@ impl<P> HNSW<P> {
         &self.layers
     }
 
-    pub fn base(&self) -> &SimpleGraph<P> {
+    /// Base layer
+    pub fn graph(&self) -> &SimpleGraph<P> {
         &self.base
     }
 }
 
-impl<P> Index<P> for HNSW<P> {
-    fn size(&self) -> usize {
-        self.base.size()
-    }
-
-    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>>
-    where
-        P: Point,
-    {
-        let Some(mut ep) = self.ep else { return vec![] };
+impl<P: Point> HNSW<P> {
+    fn find_ep(&self, query: &P) -> Option<Idx> {
+        let Some(mut ep) = self.ep else { return None };
 
         // Search layers from top to bottom
         for layer in self.layers.iter().rev() {
@@ -292,8 +315,49 @@ impl<P> Index<P> for HNSW<P> {
                 .1;
         }
 
+        Some(ep)
+    }
+}
+
+impl<P> Index<P> for HNSW<P> {
+    type Options<'a> = usize;
+
+    fn size(&self) -> usize {
+        self.base.size()
+    }
+
+    fn search(&'_ self, query: &P, k: usize, ef: &Self::Options<'_>) -> Vec<Distance<'_, P>>
+    where
+        P: Point,
+    {
+        let Some(ep) = self.find_ep(query) else {
+            return vec![];
+        };
+
         // Search base layer last
-        nsw::search(&self.base, query, ef, ep, Point::distance)
+        nsw::search(&self.base, query, *ef, ep, Point::distance)
+            .drain_asc()
+            .take(k)
+            .collect()
+    }
+}
+
+impl<P> IndexVis<P> for HNSW<P> {
+    fn search_vis<'a>(
+        &'a self,
+        query: &P,
+        k: usize,
+        ef: &Self::Options<'_>,
+        vis: &mut HashSet<Distance<'a, P>>,
+    ) -> Vec<Distance<'a, P>>
+    where
+        P: Point,
+    {
+        let Some(ep) = self.find_ep(query) else {
+            return vec![];
+        };
+
+        nsw::search_vis(&self.base, query, *ef, ep, Point::distance, vis)
             .drain_asc()
             .take(k)
             .collect()
@@ -321,13 +385,13 @@ mod tests {
 
         let hnsw = builder.build();
         let knns = hnsw
-            .search(&5, k, k)
+            .search(&5, k, &k)
             .into_iter()
             .map(|dist| dist.point)
             .copied();
         assert!(unordered_eq(knns.clone(), 3..=6) || unordered_eq(knns.clone(), 4..=7));
 
-        let len = hnsw.search(&0, hnsw.size(), hnsw.size()).len();
+        let len = hnsw.search(&0, hnsw.size(), &hnsw.size()).len();
         assert_eq!(hnsw.size(), len);
     }
 

@@ -1,12 +1,14 @@
 pub mod bruteforce;
 pub mod hnsw;
 pub mod nsw;
-use std::cmp::Ordering;
-
 pub use bruteforce::*;
 pub use hnsw::*;
 pub use nsw::*;
-use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator as _};
+use std::cmp::Ordering;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::hash::Hash;
 
 #[cfg(feature = "tracing")]
 use tracing::{debug, instrument};
@@ -19,31 +21,56 @@ pub trait IndexBuilder<P> {
 }
 
 pub trait Index<P> {
+    type Options<'a>: Debug + Send + Sync;
+
     fn size(&self) -> usize;
-    fn search<'a>(&'a self, query: &P, k: usize, ef: usize) -> Vec<Distance<'a, P>>
+
+    fn search(&'_ self, query: &P, k: usize, options: &Self::Options<'_>) -> Vec<Distance<'_, P>>
     where
         P: Point;
 
     #[cfg_attr(feature = "tracing", instrument(skip(self, queries)))]
-    fn knns<I>(&self, queries: I, k: usize, ef: usize) -> Vec<Vec<Distance<'_, P>>>
+    fn knns<'q, I>(
+        &'_ self,
+        queries: &'q I,
+        k: usize,
+        options: &Self::Options<'_>,
+    ) -> Vec<Vec<Distance<'_, P>>>
     where
         Self: Sync,
-        I: IntoIterator<Item = P>,
+        I: IntoParallelRefIterator<'q, Item = &'q P>,
         P: Point + Sync,
+        P: 'q,
     {
         #[cfg(feature = "tracing")]
         debug!(threads = rayon::current_num_threads());
         queries
-            .into_iter()
-            .collect::<Vec<_>>()
-            .into_par_iter()
-            .map(|q| self.search(q, k, ef))
+            .par_iter()
+            .map(|q| self.search(q, k, options))
             .collect()
     }
 }
 
+pub trait IndexVis<P>: Index<P> {
+    fn search_vis<'a>(
+        &'a self,
+        query: &P,
+        k: usize,
+        options: &Self::Options<'_>,
+        vis: &mut HashSet<Distance<'a, P>>,
+    ) -> Vec<Distance<'a, P>>
+    where
+        P: Point;
+}
+
 pub trait Point {
     fn distance(&self, other: &Self) -> f32;
+}
+
+impl<P: Point> Point for &P {
+    fn distance(&self, other: &Self) -> f32 {
+        (*self).distance(other)
+    }
 }
 
 #[derive(Debug)]
@@ -93,5 +120,11 @@ impl<'a, P> Ord for Distance<'a, P> {
             Ordering::Equal => self.key.cmp(&other.key),
             ordering => ordering,
         }
+    }
+}
+
+impl<'a, P> Hash for Distance<'a, P> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.key.hash(state);
     }
 }

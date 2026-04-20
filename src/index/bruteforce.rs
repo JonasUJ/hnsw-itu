@@ -35,7 +35,13 @@ impl<P> IndexBuilder<P> for Bruteforce<P> {
 }
 
 impl<P> Index<P> for Bruteforce<P> {
-    fn search<'a>(&'a self, query: &P, k: usize, _ef: usize) -> Vec<Distance<'a, P>>
+    type Options<'a> = ();
+
+    fn size(&self) -> usize {
+        self.points.len()
+    }
+
+    fn search(&self, query: &P, k: usize, _options: &Self::Options<'_>) -> Vec<Distance<'_, P>>
     where
         P: Point,
     {
@@ -44,10 +50,6 @@ impl<P> Index<P> for Bruteforce<P> {
             .enumerate()
             .map(|(key, point)| Distance::new(query.distance(point), key, point))
             .min_k(k)
-    }
-
-    fn size(&self) -> usize {
-        self.points.len()
     }
 }
 

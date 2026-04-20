@@ -32,3 +32,6 @@ data/
 
 # Indexes
 *.idx
+
+# JetBrains
+.idea
