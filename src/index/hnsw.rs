@@ -297,6 +297,22 @@ impl<P> HNSW<P> {
     pub fn graph(&self) -> &SimpleGraph<P> {
         &self.base
     }
+
+    pub fn ep(&self) -> Option<Idx> {
+        self.ep
+    }
+
+    pub fn consume(self) -> (Vec<SimpleGraph<(P, Idx)>>, SimpleGraph<P>, Option<Idx>) {
+        (self.layers, self.base, self.ep)
+    }
+
+    pub fn from_parts(
+        layers: Vec<SimpleGraph<(P, Idx)>>,
+        base: SimpleGraph<P>,
+        ep: Option<Idx>,
+    ) -> Self {
+        Self { layers, base, ep }
+    }
 }
 
 impl<P: Point> HNSW<P> {

@@ -21,6 +21,18 @@ impl<T> SimpleGraph<T> {
     pub fn adj_lists(&self) -> &Vec<HashSet<Idx>> {
         &self.adj_lists
     }
+
+    pub fn consume(self) -> (Vec<T>, Vec<HashSet<Idx>>) {
+        (self.nodes, self.adj_lists)
+    }
+
+    pub fn from_parts(nodes: Vec<T>, adj_lists: Vec<HashSet<Idx>>) -> Self {
+        Self {
+            nodes,
+            adj_lists,
+            empty: HashSet::default(),
+        }
+    }
 }
 
 impl<T> SimpleGraph<T> {
